@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "xportacar-mobile",
-    "slug": "xportacar-mobile",
+    "name": "XportACar",
+    "slug": "xportacar",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,21 +10,32 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1570EF"
     },
+    "scheme": "xportacar",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.xportacar.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1570EF"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.xportacar.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      ["expo-notifications", { "color": "#1570EF" }]
+    ],
+    "extra": {
+      "supabaseUrl": "https://klettmjnnttajdyajafn.supabase.co",
+      "supabaseAnonKey": "sb_publishable_rawIwWZv12q9_VxVuaMOWQ_A2oXTEJ_"
     }
   }
 }
