@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
+import { useAuth } from "../lib/auth";
+import { useWatchlist } from "../lib/watchlist";
+import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
+  const { user } = useAuth();
+  const { t, isRtl } = useTranslation();
+  const { ids: watchIds, toggle: toggleWatch } = useWatchlist(user?.id ?? null);
   const [items, setItems] = useState<VehicleListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -22,10 +28,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       `)
       .in("status", ["listed", "in_auction"])
       .order("updated_at", { ascending: false });
-    if (error) {
-      setItems([]);
-      return;
-    }
+    if (error) { setItems([]); return; }
     // deno-lint-ignore no-explicit-any
     const list: VehicleListItem[] = (data as any[]).map((row) => {
       const photos = (row.vehicle_photos ?? []) as { url: string; sort_order: number }[];
@@ -35,7 +38,6 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       const { vehicle_photos: _v, auctions: _a, ...rest } = row;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
-    // Ending-soon first.
     list.sort((a, b) => {
       const ae = a.auction?.end_time;
       const be = b.auction?.end_time;
@@ -64,25 +66,37 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       )
     : items;
 
+  const onToggle = async (vehicleId: string) => {
+    if (!user) {
+      Alert.alert("Sign in required", t("watchlist.signin"));
+      return;
+    }
+    const result = await toggleWatch(vehicleId);
+    if (result === "error") Alert.alert("Couldn't update watchlist");
+  };
+
   if (loading) {
     return (
-      <View style={[styles.center, { flex: 1 }]}>
+      <View style={[styles.center, { flex: 1, backgroundColor: theme.colors.bg }]}>
         <ActivityIndicator color={theme.colors.brand} size="large" />
+        <Text style={styles.loadingMsg}>{t("marketplace.title")}…</Text>
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg, direction: isRtl ? "rtl" : "ltr" }}>
       <View style={styles.header}>
-        <Text style={styles.title}>Marketplace</Text>
-        <Text style={styles.subtitle}>{filtered.length} of {items.length} vehicles</Text>
+        <Text style={styles.title}>{t("marketplace.title")}</Text>
+        <Text style={styles.subtitle}>
+          {t("marketplace.results", { count: filtered.length, total: items.length })}
+        </Text>
       </View>
       <View style={styles.searchWrap}>
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search make, model, VIN…"
+          placeholder={t("marketplace.search")}
           placeholderTextColor={theme.colors.textLight}
           style={styles.search}
           autoCapitalize="none"
@@ -95,12 +109,14 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
         renderItem={({ item }) => (
           <VehicleCard
             vehicle={item}
+            isWatching={watchIds.has(item.id)}
+            onToggleWatch={user ? () => onToggle(item.id) : undefined}
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
           />
         )}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brand} />}
         ListEmptyComponent={
-          <View style={styles.empty}><Text style={styles.emptyText}>No vehicles match your search.</Text></View>
+          <View style={styles.empty}><Text style={styles.emptyText}>{t("marketplace.empty")}</Text></View>
         }
       />
     </View>
@@ -109,6 +125,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
 
 const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center" },
+  loadingMsg: { marginTop: 12, color: theme.colors.textLight, fontSize: 13 },
   header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   title: { fontSize: 28, fontWeight: "800", color: theme.colors.text },
   subtitle: { fontSize: 13, color: theme.colors.textLight, marginTop: 4 },

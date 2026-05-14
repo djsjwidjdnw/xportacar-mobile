@@ -11,9 +11,13 @@ export interface VehicleListItem extends VehicleRow {
 export function VehicleCard({
   vehicle,
   onPress,
+  isWatching,
+  onToggleWatch,
 }: {
   vehicle: VehicleListItem;
   onPress: () => void;
+  isWatching?: boolean;
+  onToggleWatch?: () => void;
 }) {
   const live = vehicle.auction?.status === "active";
   const price = live ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur) : vehicle.listed_price_eur;
@@ -36,6 +40,20 @@ export function VehicleCard({
           <View style={styles.timerBadge}>
             <Text style={styles.timerText}>{formatRemaining(vehicle.auction.end_time)}</Text>
           </View>
+        )}
+        {onToggleWatch && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); onToggleWatch(); }}
+            hitSlop={8}
+            style={({ pressed }) => [styles.heartBtn, pressed && { opacity: 0.85 }]}
+            accessibilityLabel={isWatching ? "Remove from watchlist" : "Add to watchlist"}
+          >
+            {/* Filled heart when watching, outline when not — works with
+                any font that supports ♥ and ♡. */}
+            <Text style={[styles.heartIcon, isWatching && styles.heartIconActive]}>
+              {isWatching ? "♥" : "♡"}
+            </Text>
+          </Pressable>
         )}
       </View>
       <View style={styles.body}>
@@ -89,6 +107,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
   },
   timerText: { color: theme.colors.white, fontSize: 11, fontWeight: "700" },
+  heartBtn: {
+    position: "absolute", top: 10, right: 10,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  heartIcon:       { fontSize: 18, color: theme.colors.textMuted, marginTop: -1 },
+  heartIconActive: { color: theme.colors.error },
   body: { padding: 14 },
   title: { fontSize: 15, fontWeight: "700", color: theme.colors.text },
   subtitle: { fontSize: 12, color: theme.colors.textLight, marginTop: 2 },

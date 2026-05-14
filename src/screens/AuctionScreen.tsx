@@ -66,11 +66,30 @@ export function AuctionScreen({
     // Realtime: update on new bids and auction status updates.
     const ch = supabase
       .channel(`auction-${id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "bids", filter: `auction_id=eq.${id}` }, () => refresh())
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "bids", filter: `auction_id=eq.${id}` },
+        (payload) => {
+          // Outbid detection — fire BEFORE the refresh races.  If the new
+          // bid is not ours AND we were the previous top bidder, alert.
+          const newBid = payload.new as BidRow;
+          if (
+            user &&
+            newBid.bidder_id !== user.id &&
+            bids[0]?.bidder_id === user.id
+          ) {
+            Alert.alert(
+              "You were outbid",
+              `New top bid: ${formatEur(newBid.amount_eur)}`,
+            );
+          }
+          refresh();
+        },
+      )
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "auctions", filter: `id=eq.${id}` }, () => refresh())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [id, refresh]);
+  }, [id, refresh, bids, user]);
 
   const currentBid = auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0;
   const minNext = currentBid + bidIncrement(currentBid);
