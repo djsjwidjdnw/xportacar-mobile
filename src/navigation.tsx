@@ -11,6 +11,7 @@ import { VehicleDetailScreen as VehicleDetailScreenImpl } from "./screens/Vehicl
 import { AuctionScreen as AuctionScreenImpl } from "./screens/AuctionScreen";
 import { WatchlistScreen as WatchlistScreenImpl } from "./screens/WatchlistScreen";
 import { ProfileScreen as ProfileScreenImpl } from "./screens/ProfileScreen";
+import { MyBidsScreen as MyBidsScreenImpl } from "./screens/MyBidsScreen";
 
 // React-Navigation's Screen prop types differ from a hand-written screen
 // signature.  Cast through `unknown` here once so each screen stays
@@ -24,6 +25,7 @@ const VehicleDetailScreen  = VehicleDetailScreenImpl  as unknown as AnyScreen;
 const AuctionScreen        = AuctionScreenImpl        as unknown as AnyScreen;
 const WatchlistScreen      = WatchlistScreenImpl      as unknown as AnyScreen;
 const ProfileScreen        = ProfileScreenImpl        as unknown as AnyScreen;
+const MyBidsScreen         = MyBidsScreenImpl         as unknown as AnyScreen;
 
 import { useAuth } from "./lib/auth";
 import { theme } from "./lib/theme";
@@ -89,6 +91,7 @@ function ProfileStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileHome"   component={ProfileScreen} />
+      <Stack.Screen name="MyBidsList"    component={MyBidsScreen}        options={{ headerShown: true, title: "My Bids" }} />
       <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
       <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
     </Stack.Navigator>

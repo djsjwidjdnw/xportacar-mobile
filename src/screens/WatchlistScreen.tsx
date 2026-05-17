@@ -110,6 +110,13 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
             isWatching={watchIds.has(item.id)}
             onToggleWatch={() => onToggle(item.id)}
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
+            onPrimaryAction={() => {
+              if (item.auction?.status === "active") {
+                navigation.navigate("Auction", { id: item.auction.id });
+              } else {
+                navigation.navigate("VehicleDetail", { id: item.id });
+              }
+            }}
           />
         )}
         ListEmptyComponent={

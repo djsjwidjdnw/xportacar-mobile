@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import {
   Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
+// ScrollView is used twice in this file: the outer page wrapper + a
+// horizontal one for the recent-bids carousel.
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -175,47 +177,84 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         </View>
       </LinearGradient>
 
-      {/* Recent bid activity */}
-      <SectionHeader icon="flash-outline" label="My recent bids" right={recent.length > 0 ? `${grouped.length} total` : undefined} />
+      {/* Recent bid activity — horizontal scroll cards with See All link */}
+      <View style={styles.bidsHeaderRow}>
+        <View style={styles.bidsHeaderLeft}>
+          <Ionicons name="flash-outline" size={16} color={theme.colors.brand} />
+          <Text style={styles.bidsHeaderTitle}>My Bids</Text>
+          {grouped.length > 0 && (
+            <View style={styles.bidsCountPill}>
+              <Text style={styles.bidsCountText}>{grouped.length}</Text>
+            </View>
+          )}
+        </View>
+        {grouped.length > 0 && (
+          <Pressable
+            onPress={() => navigation.navigate("MyBidsList")}
+            hitSlop={8}
+            style={({ pressed }) => [styles.seeAllBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={styles.seeAllText}>See All</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.colors.brand} />
+          </Pressable>
+        )}
+      </View>
       {recent.length === 0 ? (
         <View style={styles.emptyCard}>
           <Ionicons name="flash-outline" size={20} color={theme.colors.textLight} />
           <Text style={styles.emptyCardText}>No bids yet. Browse live auctions to get started.</Text>
         </View>
       ) : (
-        <View style={styles.card}>
-          {recent.map((b, i) => {
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.bidsScroll}
+          decelerationRate="fast"
+          snapToInterval={272}  // bidCard width + gap
+          snapToAlignment="start"
+        >
+          {recent.map((b) => {
             const a = b.auction!;
             const winning = b.amount_eur >= (a.current_bid_eur ?? 0);
             const ended   = a.status !== "active";
             const tag = ended
               ? (a.winner_id === user.id
-                ? { l: "Won",    bg: theme.colors.successBg, fg: theme.colors.success }
-                : { l: "Ended",  bg: theme.colors.bgAlt,     fg: theme.colors.textMuted })
+                ? { l: "Won",    bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
+                : { l: "Ended",  bg: theme.colors.bgAlt,     fg: theme.colors.textMuted, icon: "time-outline" as const })
               : winning
-              ? { l: "Winning", bg: theme.colors.successBg, fg: theme.colors.success }
-              : { l: "Outbid",  bg: theme.colors.warningBg, fg: theme.colors.warning };
+              ? { l: "Winning", bg: theme.colors.successBg, fg: theme.colors.success, icon: "checkmark-circle" as const }
+              : { l: "Outbid",  bg: theme.colors.warningBg, fg: theme.colors.warning, icon: "alert-circle" as const };
             return (
               <Pressable
                 key={b.id}
                 onPress={() => navigation.navigate("Auction", { id: a.id })}
-                style={({ pressed }) => [styles.bidRow, i === recent.length - 1 && { borderBottomWidth: 0 }, pressed && { opacity: 0.95 }]}
+                style={({ pressed }) => [styles.bidCard, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}
               >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.bidTitle}>
-                    {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}` : "—"}
-                  </Text>
-                  <Text style={styles.bidSub}>
-                    Your top {formatEur(b.amount_eur)} · Current {formatEur(a.current_bid_eur ?? 0)}
-                  </Text>
+                <View style={[styles.bidCardTag, { backgroundColor: tag.bg }]}>
+                  <Ionicons name={tag.icon} size={11} color={tag.fg} />
+                  <Text style={[styles.bidCardTagText, { color: tag.fg }]}>{tag.l}</Text>
                 </View>
-                <View style={[styles.statusTag, { backgroundColor: tag.bg }]}>
-                  <Text style={[styles.statusTagText, { color: tag.fg }]}>{tag.l}</Text>
+                <Text style={styles.bidCardTitle} numberOfLines={2}>
+                  {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}` : "—"}
+                </Text>
+                <View style={styles.bidCardPrices}>
+                  <View>
+                    <Text style={styles.bidCardLabel}>Your bid</Text>
+                    <Text style={styles.bidCardYour}>{formatEur(b.amount_eur)}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.bidCardLabel}>Current</Text>
+                    <Text style={styles.bidCardCurrent}>{formatEur(a.current_bid_eur ?? 0)}</Text>
+                  </View>
+                </View>
+                <View style={styles.bidCardFoot}>
+                  <Text style={styles.bidCardFootText}>View auction</Text>
+                  <Ionicons name="arrow-forward" size={12} color={theme.colors.brand} />
                 </View>
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
       )}
 
       {/* Won auctions */}
@@ -356,6 +395,43 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10 },
   sectionLabel:  { fontSize: 11, fontWeight: "800", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.6 },
   sectionRight:  { marginLeft: "auto", fontSize: 11, fontWeight: "700", color: theme.colors.textLight },
+
+  // My Bids horizontal section
+  bidsHeaderRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 20, paddingTop: 28, paddingBottom: 12,
+  },
+  bidsHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  bidsHeaderTitle: { fontSize: 17, fontWeight: "800", color: theme.colors.text, letterSpacing: -0.2 },
+  bidsCountPill: {
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.brandLight, marginLeft: 2,
+  },
+  bidsCountText: { fontSize: 11, fontWeight: "800", color: theme.colors.brand },
+  seeAllBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
+  seeAllText: { fontSize: 13, fontWeight: "800", color: theme.colors.brand },
+  bidsScroll: { paddingHorizontal: 16, paddingRight: 16, gap: 12 },
+  bidCard: {
+    width: 260,
+    padding: 16, borderRadius: theme.radius.xl,
+    backgroundColor: theme.colors.white,
+    shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  bidCardTag: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    alignSelf: "flex-start",
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.full,
+    marginBottom: 10,
+  },
+  bidCardTagText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  bidCardTitle:   { fontSize: 15, fontWeight: "800", color: theme.colors.text, minHeight: 36 },
+  bidCardPrices:  { flexDirection: "row", justifyContent: "space-between", marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  bidCardLabel:   { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
+  bidCardYour:    { fontSize: 16, fontWeight: "800", color: theme.colors.brand, marginTop: 3 },
+  bidCardCurrent: { fontSize: 16, fontWeight: "800", color: theme.colors.text, marginTop: 3 },
+  bidCardFoot:    { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 12 },
+  bidCardFootText:{ fontSize: 11, fontWeight: "800", color: theme.colors.brand, textTransform: "uppercase", letterSpacing: 0.4 },
 
   // Card
   card: {

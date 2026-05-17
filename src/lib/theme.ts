@@ -59,6 +59,24 @@ export const formatRemaining = (endIso: string): string => {
   return `${s}s`;
 };
 
+// HH:MM:SS countdown — the prominent ticking display on live auction cards.
+// Re-render the consuming component on a 1 s setInterval to make it live.
+export const formatCountdown = (endIso: string): string => {
+  const ms = new Date(endIso).getTime() - Date.now();
+  if (ms <= 0) return "00:00:00";
+  const sec = Math.floor(ms / 1000);
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (d > 0) return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`;
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+};
+
+export const msRemaining = (endIso: string): number =>
+  Math.max(0, new Date(endIso).getTime() - Date.now());
+
 // Absolute calendar time, e.g. "May 18 · 3:00 PM" — used on cards for
 // scheduled auctions so buyers can plan when to come back to bid.
 export const formatScheduledStart = (startIso: string): string => {

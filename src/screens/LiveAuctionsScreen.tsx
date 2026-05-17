@@ -3,7 +3,8 @@ import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-n
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
-import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
+import { LiveAuctionCard } from "../components/LiveAuctionCard";
+import type { VehicleListItem } from "../components/VehicleCard";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { supabase } from "../lib/supabase";
@@ -114,11 +115,12 @@ export function LiveAuctionsScreen({ navigation }: { navigation: { navigate: (s:
           </View>
         }
         renderItem={({ item }) => (
-          <VehicleCard
+          <LiveAuctionCard
             vehicle={item}
             isWatching={watchIds.has(item.id)}
             onToggleWatch={user ? () => onToggle(item.id) : undefined}
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
+            onBidPress={() => item.auction && navigation.navigate("Auction", { id: item.auction.id })}
           />
         )}
         refreshControl={

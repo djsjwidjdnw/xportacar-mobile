@@ -136,6 +136,15 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
             isWatching={watchIds.has(item.id)}
             onToggleWatch={user ? () => onToggle(item.id) : undefined}
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
+            onPrimaryAction={() => {
+              // Live auctions jump straight into bidding; everything else
+              // drops the buyer on the detail page.
+              if (item.auction?.status === "active") {
+                navigation.navigate("Auction", { id: item.auction.id });
+              } else {
+                navigation.navigate("VehicleDetail", { id: item.id });
+              }
+            }}
           />
         )}
         refreshControl={

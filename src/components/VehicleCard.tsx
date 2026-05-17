@@ -10,20 +10,33 @@ export interface VehicleListItem extends VehicleRow {
   auction: AuctionRow | null;
 }
 
+// CTA action mapping. The marketplace passes a navigation handler; the
+// VehicleCard derives the label / colour from auction state so the button
+// stays consistent across screens that use this component.
+function ctaFor(auction: AuctionRow | null): { label: string; icon: keyof typeof Ionicons.glyphMap; variant: "primary" | "muted" } {
+  if (!auction) return { label: "View details", icon: "arrow-forward", variant: "muted" };
+  if (auction.status === "active")    return { label: "Bid Now",        icon: "hammer-outline", variant: "primary" };
+  if (auction.status === "scheduled") return { label: "Coming soon",    icon: "calendar-outline", variant: "muted" };
+  return { label: "View details", icon: "arrow-forward", variant: "muted" };
+}
+
 export function VehicleCard({
   vehicle,
   onPress,
+  onPrimaryAction,
   isWatching,
   onToggleWatch,
 }: {
   vehicle: VehicleListItem;
   onPress: () => void;
+  onPrimaryAction?: () => void;
   isWatching?: boolean;
   onToggleWatch?: () => void;
 }) {
   const live = vehicle.auction?.status === "active";
   const scheduled = vehicle.auction?.status === "scheduled";
   const price = live ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur) : vehicle.listed_price_eur;
+  const cta = ctaFor(vehicle.auction);
 
   // Pulsing green dot on live cards.
   const pulse = useRef(new Animated.Value(1)).current;
@@ -38,6 +51,14 @@ export function VehicleCard({
     loop.start();
     return () => loop.stop();
   }, [live, pulse]);
+
+  // Status chip — surfaces the vehicle/auction state on every card so the
+  // marketplace mixes listed / scheduled / live without confusion.
+  const statusChip = live
+    ? { l: "LIVE NOW",  bg: theme.colors.successBg, fg: theme.colors.success }
+    : scheduled
+    ? { l: "SCHEDULED", bg: theme.colors.brandLight, fg: theme.colors.brand }
+    : { l: "LISTED",    bg: theme.colors.bgAlt,    fg: theme.colors.textMuted };
 
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}>
@@ -88,12 +109,19 @@ export function VehicleCard({
         )}
       </View>
       <View style={styles.body}>
-        <Text style={styles.title} numberOfLines={1}>
-          {vehicle.year} {vehicle.make} {vehicle.model}
-        </Text>
-        <Text style={styles.subtitle} numberOfLines={1}>
-          {vehicle.exterior_color} · {vehicle.location_city}
-        </Text>
+        <View style={styles.titleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title} numberOfLines={1}>
+              {vehicle.year} {vehicle.make} {vehicle.model}
+            </Text>
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {vehicle.exterior_color} · {vehicle.location_city}
+            </Text>
+          </View>
+          <View style={[styles.statusChip, { backgroundColor: statusChip.bg }]}>
+            <Text style={[styles.statusChipText, { color: statusChip.fg }]}>{statusChip.l}</Text>
+          </View>
+        </View>
 
         <View style={styles.specRow}>
           <Spec icon="speedometer-outline">{formatKm(vehicle.mileage_km)}</Spec>
@@ -124,6 +152,31 @@ export function VehicleCard({
             </View>
           )}
         </View>
+
+        {/* Primary action — Bid Now (live) / Coming soon (scheduled) / View
+            details (listed). Falls back to opening the card if no handler. */}
+        {onPrimaryAction && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); onPrimaryAction(); }}
+            style={({ pressed }) => [
+              styles.ctaBtn,
+              cta.variant === "primary" ? styles.ctaPrimary : styles.ctaMuted,
+              pressed && { opacity: 0.92 },
+            ]}
+          >
+            <Ionicons
+              name={cta.icon}
+              size={15}
+              color={cta.variant === "primary" ? theme.colors.white : theme.colors.text}
+            />
+            <Text style={[styles.ctaText, cta.variant === "primary" && { color: theme.colors.white }]}>
+              {cta.label}
+            </Text>
+            {cta.variant === "primary" && (
+              <Ionicons name="arrow-forward" size={15} color={theme.colors.white} />
+            )}
+          </Pressable>
+        )}
       </View>
     </Pressable>
   );
@@ -186,8 +239,11 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   body:      { padding: 16 },
+  titleRow:  { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   title:     { fontSize: 16, fontWeight: "800", color: theme.colors.text },
   subtitle:  { fontSize: 12, color: theme.colors.textLight, marginTop: 3 },
+  statusChip:{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: theme.radius.full },
+  statusChipText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.6 },
   specRow:   { flexDirection: "row", alignItems: "center", marginTop: 12, gap: 6, flexWrap: "wrap" },
   specPill:  {
     flexDirection: "row", alignItems: "center", gap: 4,
@@ -206,4 +262,17 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
   },
   scheduleHintText: { fontSize: 10, fontWeight: "800", color: theme.colors.brand },
+
+  // Primary action
+  ctaBtn: {
+    marginTop: 14,
+    height: 44, borderRadius: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+  },
+  ctaPrimary: {
+    backgroundColor: theme.colors.brand,
+    shadowColor: theme.colors.brand, shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3,
+  },
+  ctaMuted:   { backgroundColor: theme.colors.bgAlt, borderWidth: 1, borderColor: theme.colors.border },
+  ctaText:    { fontSize: 14, fontWeight: "800", color: theme.colors.text },
 });
