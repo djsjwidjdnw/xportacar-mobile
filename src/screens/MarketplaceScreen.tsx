@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert, FlatList, RefreshControl, StyleSheet, Text, TextInput, View,
+  Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
+import { LiveAuctionCard } from "../components/LiveAuctionCard";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { supabase } from "../lib/supabase";
@@ -15,6 +16,8 @@ import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
+type Filter = "all" | "live";
+
 export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -23,6 +26,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
   const fetchVehicles = useCallback(async () => {
     const { data, error } = await supabase
@@ -72,20 +76,26 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
     setRefreshing(false);
   };
 
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? items.filter((v) =>
-        `${v.year} ${v.make} ${v.model} ${v.vin} ${v.exterior_color ?? ""}`.toLowerCase().includes(q),
-      )
-    : items;
+  // Apply filter + search.
+  const liveItems = useMemo(
+    () => items.filter((v) => v.auction?.status === "active" && v.auction.end_time && new Date(v.auction.end_time).getTime() > Date.now()),
+    [items],
+  );
+
+  const filtered = useMemo(() => {
+    const base = filter === "live" ? liveItems : items;
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((v) =>
+      `${v.year} ${v.make} ${v.model} ${v.vin} ${v.exterior_color ?? ""}`.toLowerCase().includes(q),
+    );
+  }, [filter, items, liveItems, query]);
 
   const onToggle = async (vehicleId: string) => {
     if (!user) { Alert.alert("Sign in required", t("watchlist.signin")); return; }
     const result = await toggleWatch(vehicleId);
     if (result === "error") Alert.alert("Couldn't update watchlist");
   };
-
-  const liveCount = items.filter((v) => v.auction?.status === "active").length;
 
   if (loading) return <Spinner label={`${t("marketplace.title")}…`} />;
 
@@ -114,7 +124,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
                 </View>
                 <View style={styles.heroDivider} />
                 <View>
-                  <Text style={styles.heroStatNum}>{liveCount}</Text>
+                  <Text style={styles.heroStatNum}>{liveItems.length}</Text>
                   <Text style={styles.heroStatLabel}>live now</Text>
                 </View>
               </View>
@@ -134,28 +144,62 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
               />
             </View>
 
-            <Text style={styles.resultsLabel}>
-              {t("marketplace.results", { count: filtered.length, total: items.length })}
-            </Text>
+            {/* All / Live segmented pills — single source of truth for which
+                set you're browsing, replaces the old separate "Live" tab. */}
+            <View style={styles.segWrap}>
+              <SegPill
+                active={filter === "all"}
+                onPress={() => setFilter("all")}
+                icon="grid-outline"
+                label="All Vehicles"
+                count={items.length}
+              />
+              <SegPill
+                active={filter === "live"}
+                onPress={() => setFilter("live")}
+                icon="flash"
+                label="Live Now"
+                count={liveItems.length}
+                liveAccent
+              />
+            </View>
+
+            <View style={styles.resultsRow}>
+              <Text style={styles.resultsLabel}>
+                {filter === "live"
+                  ? `${filtered.length} live · ending soonest first`
+                  : t("marketplace.results", { count: filtered.length, total: items.length })}
+              </Text>
+            </View>
           </View>
         }
-        renderItem={({ item }) => (
-          <VehicleCard
-            vehicle={item}
-            isWatching={watchIds.has(item.id)}
-            onToggleWatch={user ? () => onToggle(item.id) : undefined}
-            onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
-            onPrimaryAction={() => {
-              // Live auctions jump straight into bidding; everything else
-              // drops the buyer on the detail page.
-              if (item.auction?.status === "active") {
-                navigation.navigate("Auction", { id: item.auction.id });
-              } else {
-                navigation.navigate("VehicleDetail", { id: item.id });
-              }
-            }}
-          />
-        )}
+        renderItem={({ item }) =>
+          // When the "Live Now" filter is on, switch to the dedicated card
+          // with a ticking HH:MM:SS countdown banner so urgency is obvious.
+          filter === "live" ? (
+            <LiveAuctionCard
+              vehicle={item}
+              isWatching={watchIds.has(item.id)}
+              onToggleWatch={user ? () => onToggle(item.id) : undefined}
+              onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
+              onBidPress={() => item.auction && navigation.navigate("Auction", { id: item.auction.id })}
+            />
+          ) : (
+            <VehicleCard
+              vehicle={item}
+              isWatching={watchIds.has(item.id)}
+              onToggleWatch={user ? () => onToggle(item.id) : undefined}
+              onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
+              onPrimaryAction={() => {
+                if (item.auction?.status === "active") {
+                  navigation.navigate("Auction", { id: item.auction.id });
+                } else {
+                  navigation.navigate("VehicleDetail", { id: item.id });
+                }
+              }}
+            />
+          )
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -165,10 +209,52 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           />
         }
         ListEmptyComponent={
-          <EmptyState icon="car-outline" title="No matches" body={t("marketplace.empty")} />
+          filter === "live" ? (
+            <EmptyState
+              icon="flash-outline"
+              title="No live auctions"
+              body="Nothing live right now. Switch to All Vehicles to see what's coming soon."
+            />
+          ) : (
+            <EmptyState icon="car-outline" title="No matches" body={t("marketplace.empty")} />
+          )
         }
       />
     </View>
+  );
+}
+
+function SegPill({
+  active, onPress, icon, label, count, liveAccent,
+}: {
+  active: boolean;
+  onPress: () => void;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  count: number;
+  liveAccent?: boolean;
+}) {
+  const accent = liveAccent ? theme.colors.success : theme.colors.brand;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.seg,
+        active && { backgroundColor: accent },
+        !active && { borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.white },
+        pressed && { opacity: 0.92 },
+      ]}
+    >
+      <Ionicons
+        name={icon}
+        size={14}
+        color={active ? theme.colors.white : theme.colors.textMuted}
+      />
+      <Text style={[styles.segLabel, active && { color: theme.colors.white }]}>{label}</Text>
+      <View style={[styles.segCount, active ? { backgroundColor: "rgba(255,255,255,0.22)" } : { backgroundColor: theme.colors.bgAlt }]}>
+        <Text style={[styles.segCountText, active && { color: theme.colors.white }]}>{count}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -193,5 +279,16 @@ const styles = StyleSheet.create({
   },
   search: { flex: 1, fontSize: 14, color: theme.colors.text },
 
-  resultsLabel: { fontSize: 12, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 },
+  // Segmented filter
+  segWrap: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  seg: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    height: 42, borderRadius: theme.radius.full, paddingHorizontal: 12,
+  },
+  segLabel: { fontSize: 13, fontWeight: "800", color: theme.colors.text, letterSpacing: 0.2 },
+  segCount: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: theme.radius.full, minWidth: 22, alignItems: "center" },
+  segCountText: { fontSize: 11, fontWeight: "800", color: theme.colors.textMuted },
+
+  resultsRow: { marginBottom: 12 },
+  resultsLabel: { fontSize: 12, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
 });

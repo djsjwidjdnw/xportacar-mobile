@@ -39,7 +39,8 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       `)
       .in("id", vehicleIds);
 
-    if (err) { setError(err.message); setItems([]); return; }
+    if (err) { console.warn("[Watchlist] vehicles error:", err.message); setError(err.message); setItems([]); return; }
+    console.log(`[Watchlist] step 2 returned ${(data ?? []).length} vehicles for ${vehicleIds.length} ids`);
 
     type Row = VehicleRow & {
       vehicle_photos?: { url: string; sort_order: number }[];
