@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator, Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View,
+  Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 
-import { Button } from "../components/Button";
+import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { theme, formatEur, formatKm, formatRemaining } from "../lib/theme";
 import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow } from "../lib/types";
@@ -15,11 +17,11 @@ type VehicleFull = VehicleRow & {
   auctions: AuctionRow[];
 };
 
-const SEVERITY_COLOR: Record<string, { bg: string; fg: string }> = {
-  cosmetic: { bg: theme.colors.bgAlt,    fg: theme.colors.textMuted },
-  minor:    { bg: theme.colors.brandLight, fg: theme.colors.brandDark },
-  moderate: { bg: theme.colors.warningBg, fg: theme.colors.warning },
-  major:    { bg: theme.colors.errorBg,   fg: theme.colors.error },
+const SEVERITY_COLOR: Record<string, { bg: string; fg: string; border: string }> = {
+  cosmetic: { bg: "#ecfdf3", fg: theme.colors.success, border: "#a6f4c5" },
+  minor:    { bg: theme.colors.warningBg, fg: "#b54708", border: "#fedf89" },
+  moderate: { bg: "#fff4ed", fg: "#c4320a", border: "#feb273" },
+  major:    { bg: theme.colors.errorBg,   fg: theme.colors.error, border: "#fda29b" },
 };
 
 export function VehicleDetailScreen({
@@ -50,7 +52,7 @@ export function VehicleDetailScreen({
     })();
   }, [id]);
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={theme.colors.brand} /></View>;
+  if (loading) return <Spinner label="Loading vehicle…" />;
   if (!vehicle) return <View style={styles.center}><Text>Vehicle not found.</Text></View>;
 
   const photos = (vehicle.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order);
@@ -60,159 +62,247 @@ export function VehicleDetailScreen({
   const width = Dimensions.get("window").width;
 
   return (
-    <ScrollView style={{ backgroundColor: theme.colors.bg }} contentContainerStyle={{ paddingBottom: 32 }}>
-      {/* Carousel */}
-      <View>
-        <FlatList
-          data={photos}
-          keyExtractor={(p) => p.id}
-          horizontal pagingEnabled showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={(e) => setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
-          renderItem={({ item }) => (
-            <Image source={{ uri: item.url }} style={{ width, height: width * 0.65 }} contentFit="cover" />
-          )}
-        />
-        <View style={styles.dotRow}>
-          {photos.map((_, i) => (
-            <View key={i} style={[styles.dot, i === photoIndex && { backgroundColor: theme.colors.white, width: 18 }]} />
-          ))}
-        </View>
-        {live && (
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>LIVE · {formatRemaining(auction!.end_time)}</Text>
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: live ? 100 : 32 }}>
+        {/* Carousel */}
+        <View>
+          <FlatList
+            data={photos}
+            keyExtractor={(p) => p.id}
+            horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
+            renderItem={({ item }) => (
+              <Image source={{ uri: item.url }} style={{ width, height: width * 0.72 }} contentFit="cover" />
+            )}
+          />
+          <View style={styles.dotRow}>
+            {photos.map((_, i) => (
+              <View key={i} style={[styles.dot, i === photoIndex && styles.dotActive]} />
+            ))}
           </View>
-        )}
-      </View>
-
-      <View style={styles.body}>
-        <Text style={styles.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text>
-        <Text style={styles.subtitle}>{vehicle.exterior_color} · {vehicle.interior_color} · {vehicle.location_city}, {vehicle.location_country}</Text>
-
-        {/* Price card */}
-        <View style={styles.priceCard}>
-          <View>
-            <Text style={styles.priceLabel}>{live ? "Current bid" : "Starting price"}</Text>
-            <Text style={styles.priceValue}>{formatEur(price)}</Text>
-            {auction && <Text style={styles.priceSub}>{auction.bid_count} bids · {auction.bidder_count} bidders</Text>}
-          </View>
-          {auction && (
-            <Button
-              label="View auction"
-              onPress={() => navigation.navigate("Auction", { id: auction.id })}
-              style={{ marginTop: 14 }}
-              fullWidth
-            />
+          {live && auction && (
+            <View style={styles.liveBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE · {formatRemaining(auction.end_time)}</Text>
+            </View>
           )}
         </View>
 
-        {/* Specs */}
-        <Section title="Specifications">
-          <View style={styles.specGrid}>
-            <Spec label="VIN"           value={vehicle.vin} />
-            <Spec label="Mileage"       value={formatKm(vehicle.mileage_km)} />
-            <Spec label="Fuel"          value={vehicle.fuel_type} />
-            <Spec label="Transmission"  value={vehicle.transmission} />
-            <Spec label="Body"          value={vehicle.body_type ?? "—"} />
-            <Spec label="Exterior"      value={vehicle.exterior_color ?? "—"} />
-            <Spec label="Interior"      value={vehicle.interior_color ?? "—"} />
-            <Spec label="Listed price"  value={formatEur(vehicle.listed_price_eur)} />
-          </View>
-        </Section>
+        <View style={styles.body}>
+          <Text style={styles.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text>
+          <Text style={styles.subtitle}>
+            {vehicle.exterior_color} · {vehicle.interior_color} · {vehicle.location_city}, {vehicle.location_country}
+          </Text>
 
-        {/* Features */}
-        {Array.isArray(vehicle.features) && vehicle.features.length > 0 && (
-          <Section title="Features & equipment">
-            <View style={styles.tagRow}>
-              {vehicle.features.map((f) => (
-                <View key={f} style={styles.tag}><Text style={styles.tagText}>{f}</Text></View>
-              ))}
+          {/* Specs */}
+          <Section title="Specifications" icon="information-circle-outline">
+            <View style={styles.specGrid}>
+              <Spec icon="barcode-outline"        label="VIN"          value={vehicle.vin} />
+              <Spec icon="speedometer-outline"    label="Mileage"      value={formatKm(vehicle.mileage_km)} />
+              <Spec icon="flash-outline"          label="Fuel"         value={vehicle.fuel_type} capitalize />
+              <Spec icon="cog-outline"            label="Transmission" value={vehicle.transmission} capitalize />
+              <Spec icon="car-sport-outline"      label="Body"         value={vehicle.body_type ?? "—"} />
+              <Spec icon="color-palette-outline"  label="Exterior"     value={vehicle.exterior_color ?? "—"} />
+              <Spec icon="color-fill-outline"     label="Interior"     value={vehicle.interior_color ?? "—"} />
+              <Spec icon="pricetag-outline"       label="Listed price" value={formatEur(vehicle.listed_price_eur)} />
             </View>
           </Section>
-        )}
 
-        {/* Condition report */}
-        <Section title="Condition report">
-          {vehicle.vehicle_damages.length === 0 ? (
-            <Text style={styles.muted}>No reported damage. Inspected and certified.</Text>
-          ) : (
-            <View style={{ gap: 10 }}>
-              {vehicle.vehicle_damages.map((d) => {
-                const sev = SEVERITY_COLOR[d.severity] ?? SEVERITY_COLOR.cosmetic;
-                return (
-                  <View key={d.id} style={styles.damageRow}>
-                    <View>
-                      <Text style={styles.damageLoc}>{d.location}</Text>
-                      <Text style={styles.damageDesc}>{d.description}</Text>
-                    </View>
-                    <View style={[styles.severity, { backgroundColor: sev.bg }]}>
-                      <Text style={[styles.severityText, { color: sev.fg }]}>{d.severity}</Text>
-                    </View>
+          {/* Features */}
+          {Array.isArray(vehicle.features) && vehicle.features.length > 0 && (
+            <Section title="Features & equipment" icon="sparkles-outline">
+              <View style={styles.tagRow}>
+                {vehicle.features.map((f) => (
+                  <View key={f} style={styles.tag}>
+                    <Ionicons name="checkmark-circle" size={11} color={theme.colors.brand} />
+                    <Text style={styles.tagText}>{f}</Text>
                   </View>
-                );
-              })}
-            </View>
+                ))}
+              </View>
+            </Section>
           )}
-        </Section>
 
-        {vehicle.description && (
-          <Section title="Seller notes"><Text style={styles.body14}>{vehicle.description}</Text></Section>
-        )}
-      </View>
-    </ScrollView>
+          {/* Condition report — colour-coded */}
+          <Section title="Condition report" icon="shield-checkmark-outline">
+            {vehicle.vehicle_damages.length === 0 ? (
+              <View style={styles.cleanReport}>
+                <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+                <Text style={styles.cleanReportText}>No reported damage. Inspected and certified.</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {vehicle.vehicle_damages.map((d) => {
+                  const sev = SEVERITY_COLOR[d.severity] ?? SEVERITY_COLOR.cosmetic;
+                  return (
+                    <View key={d.id} style={[styles.damageRow, { borderLeftWidth: 4, borderLeftColor: sev.fg }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.damageLoc}>{d.location}</Text>
+                        <Text style={styles.damageDesc}>{d.description}</Text>
+                      </View>
+                      <View style={[styles.severityPill, { backgroundColor: sev.bg, borderColor: sev.border, borderWidth: 1 }]}>
+                        <Text style={[styles.severityText, { color: sev.fg }]}>{d.severity}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </Section>
+
+          {vehicle.description && (
+            <Section title="Seller notes" icon="chatbox-outline">
+              <Text style={styles.bodyText}>{vehicle.description}</Text>
+            </Section>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Sticky bottom CTA bar — only when an auction is live */}
+      {live && auction && (
+        <View style={styles.stickyBar}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stickyLabel}>Current bid</Text>
+            <Text style={styles.stickyPrice}>{formatEur(price)}</Text>
+          </View>
+          <Pressable
+            onPress={() => navigation.navigate("Auction", { id: auction.id })}
+            style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
+          >
+            <LinearGradient
+              colors={[theme.colors.brand, theme.colors.brandDark]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={styles.stickyCta}
+            >
+              <Ionicons name="hammer-outline" size={16} color={theme.colors.white} />
+              <Text style={styles.stickyCtaText}>Place Bid</Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
+      )}
+    </View>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title, icon, children,
+}: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  children: React.ReactNode;
+}) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.sectionHeader}>
+        <Ionicons name={icon} size={16} color={theme.colors.brand} />
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
       {children}
     </View>
   );
 }
 
-function Spec({ label, value }: { label: string; value: string }) {
+function Spec({
+  icon, label, value, capitalize,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  capitalize?: boolean;
+}) {
   return (
     <View style={styles.specItem}>
-      <Text style={styles.specLabel}>{label}</Text>
-      <Text style={styles.specValue} numberOfLines={1}>{value}</Text>
+      <Ionicons name={icon} size={14} color={theme.colors.textLight} />
+      <View style={{ flex: 1, marginLeft: 8 }}>
+        <Text style={styles.specLabel}>{label}</Text>
+        <Text style={[styles.specValue, capitalize && { textTransform: "capitalize" }]} numberOfLines={1}>{value}</Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  dotRow: { flexDirection: "row", justifyContent: "center", gap: 4, position: "absolute", bottom: 12, alignSelf: "center" },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.55)" },
+
+  // Carousel
+  dotRow: { flexDirection: "row", justifyContent: "center", gap: 4, position: "absolute", bottom: 14, alignSelf: "center" },
+  dot:    { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.55)" },
+  dotActive: { backgroundColor: theme.colors.white, width: 18 },
   liveBadge: {
-    position: "absolute", top: 16, left: 16, backgroundColor: "rgba(255,255,255,0.95)",
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
+    position: "absolute", top: 16, left: 16,
+    backgroundColor: "rgba(255,255,255,0.96)",
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.full,
     flexDirection: "row", alignItems: "center", gap: 6,
+    shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.error },
-  liveText: { fontSize: 11, fontWeight: "800", color: theme.colors.error },
+  liveDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.success },
+  liveText: { fontSize: 11, fontWeight: "800", color: theme.colors.text, letterSpacing: 0.3 },
+
+  // Body
   body: { padding: 20 },
-  title: { fontSize: 22, fontWeight: "800", color: theme.colors.text },
-  subtitle: { color: theme.colors.textLight, marginTop: 4, fontSize: 13 },
-  priceCard: { marginTop: 18, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.white, padding: 16 },
-  priceLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  priceValue: { fontSize: 28, fontWeight: "800", color: theme.colors.text, marginTop: 2 },
-  priceSub: { fontSize: 12, color: theme.colors.textLight, marginTop: 4 },
+  title: { fontSize: 24, fontWeight: "800", color: theme.colors.text },
+  subtitle: { color: theme.colors.textLight, marginTop: 4, fontSize: 13, lineHeight: 18 },
+
+  // Section
   section: { marginTop: 24 },
-  sectionTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text, marginBottom: 10 },
-  specGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  specItem: { width: "48%", paddingVertical: 8, paddingHorizontal: 12, borderRadius: theme.radius.md, backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border },
-  specLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  specValue: { fontSize: 13, color: theme.colors.text, fontWeight: "600", marginTop: 3, textTransform: "capitalize" },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text },
+
+  // Specs
+  specGrid: { gap: 10 },
+  specItem: {
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: 12, paddingHorizontal: 14,
+    backgroundColor: theme.colors.white,
+    borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border,
+  },
+  specLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
+  specValue: { fontSize: 13, color: theme.colors.text, fontWeight: "700", marginTop: 2 },
+
+  // Tags
   tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  tag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: theme.radius.full, backgroundColor: theme.colors.brandLight },
-  tagText: { fontSize: 11, color: theme.colors.brandDark, fontWeight: "600" },
-  muted: { color: theme.colors.textLight, fontSize: 13 },
-  damageRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, borderRadius: theme.radius.md, backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border },
-  damageLoc: { fontWeight: "700", color: theme.colors.text, fontSize: 13 },
+  tag: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.brandLight,
+  },
+  tagText: { fontSize: 11, color: theme.colors.brandDark, fontWeight: "700" },
+
+  // Condition
+  cleanReport: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 14, borderRadius: 12, backgroundColor: "#ecfdf3", borderWidth: 1, borderColor: "#a6f4c5",
+  },
+  cleanReportText: { color: theme.colors.success, fontSize: 13, fontWeight: "600", flex: 1 },
+  damageRow: {
+    flexDirection: "row", alignItems: "center", padding: 14,
+    backgroundColor: theme.colors.white, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  damageLoc:  { fontWeight: "800", color: theme.colors.text, fontSize: 13 },
   damageDesc: { color: theme.colors.textLight, fontSize: 12, marginTop: 2 },
-  severity: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.full },
+  severityPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full },
   severityText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
-  body14: { fontSize: 14, lineHeight: 22, color: theme.colors.textMuted },
+
+  bodyText: { fontSize: 14, lineHeight: 22, color: theme.colors.textMuted },
+
+  // Sticky bottom bar
+  stickyBar: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    backgroundColor: theme.colors.white,
+    borderTopWidth: 1, borderTopColor: theme.colors.border,
+    paddingTop: 12, paddingBottom: 24, paddingHorizontal: 16,
+    flexDirection: "row", alignItems: "center", gap: 12,
+    shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: -4 },
+    elevation: 8,
+  },
+  stickyLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  stickyPrice: { fontSize: 22, fontWeight: "800", color: theme.colors.brand },
+  stickyCta: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 24, height: 48, borderRadius: 12,
+    shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  },
+  stickyCtaText: { color: theme.colors.white, fontSize: 15, fontWeight: "800" },
 });

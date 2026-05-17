@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, Modal, Pressable, ScrollView,
+  Alert, Animated, Easing, Modal, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 
 import { Button } from "../components/Button";
+import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { theme, formatEur, formatRemaining } from "../lib/theme";
 import { useAuth } from "../lib/auth";
+import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, BidRow, VehicleRow } from "../lib/types";
 
 interface AuctionFull extends AuctionRow {
@@ -22,6 +26,11 @@ function bidIncrement(curr: number): number {
   return 2_500;
 }
 
+function initials(id: string): string {
+  // Synthetic 2-letter initials from a UUID — stable per-bidder.
+  return id.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase();
+}
+
 export function AuctionScreen({
   route, navigation,
 }: {
@@ -30,6 +39,7 @@ export function AuctionScreen({
 }) {
   const { id } = route.params;
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [auction, setAuction] = useState<AuctionFull | null>(null);
   const [bids, setBids] = useState<BidRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,16 +56,8 @@ export function AuctionScreen({
 
   const refresh = useCallback(async () => {
     const [{ data: aRow }, { data: bidRows }] = await Promise.all([
-      supabase
-        .from("auctions")
-        .select(`*, vehicle:vehicles!vehicle_id(*)`)
-        .eq("id", id)
-        .single(),
-      supabase
-        .from("bids")
-        .select("*")
-        .eq("auction_id", id)
-        .order("created_at", { ascending: false }),
+      supabase.from("auctions").select(`*, vehicle:vehicles!vehicle_id(*)`).eq("id", id).single(),
+      supabase.from("bids").select("*").eq("auction_id", id).order("created_at", { ascending: false }),
     ]);
     setAuction((aRow as AuctionFull) ?? null);
     setBids((bidRows as BidRow[]) ?? []);
@@ -63,25 +65,15 @@ export function AuctionScreen({
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
-    // Realtime: update on new bids and auction status updates.
     const ch = supabase
       .channel(`auction-${id}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "bids", filter: `auction_id=eq.${id}` },
         (payload) => {
-          // Outbid detection — fire BEFORE the refresh races.  If the new
-          // bid is not ours AND we were the previous top bidder, alert.
           const newBid = payload.new as BidRow;
-          if (
-            user &&
-            newBid.bidder_id !== user.id &&
-            bids[0]?.bidder_id === user.id
-          ) {
-            Alert.alert(
-              "You were outbid",
-              `New top bid: ${formatEur(newBid.amount_eur)}`,
-            );
+          if (user && newBid.bidder_id !== user.id && bids[0]?.bidder_id === user.id) {
+            Alert.alert(t("auction.outbid"), t("auction.outbidBody", { price: formatEur(newBid.amount_eur) }));
           }
           refresh();
         },
@@ -89,156 +81,188 @@ export function AuctionScreen({
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "auctions", filter: `id=eq.${id}` }, () => refresh())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [id, refresh, bids, user]);
+  }, [id, refresh, bids, user, t]);
 
   const currentBid = auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0;
   const minNext = currentBid + bidIncrement(currentBid);
 
-  useEffect(() => {
-    if (amount < minNext) setAmount(minNext);
-  }, [minNext, amount]);
+  useEffect(() => { if (amount < minNext) setAmount(minNext); }, [minNext, amount]);
 
   const ended = useMemo(() =>
     !auction || auction.status !== "active" || new Date(auction.end_time).getTime() <= Date.now(),
     [auction],
   );
+  const msRemaining = auction ? new Date(auction.end_time).getTime() - Date.now() : 0;
+  const urgentCountdown = msRemaining > 0 && msRemaining < 3600_000;     // under 1h
+  const isWinning = useMemo(() => !!user && bids[0]?.bidder_id === user.id, [bids, user]);
+  const userHasBid = useMemo(() => !!user && bids.some((b) => b.bidder_id === user.id), [bids, user]);
 
-  const isWinning = useMemo(
-    () => user && bids[0]?.bidder_id === user.id,
-    [bids, user],
-  );
+  // Pulsing animation when in the last hour.
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!urgentCountdown) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.04, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.0,  duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [urgentCountdown, pulse]);
 
   const placeBid = async () => {
     if (!user) { Alert.alert("Sign in required", "Sign in to place a bid."); return; }
-    if (amount < minNext) {
-      Alert.alert("Bid too low", `Min next bid is ${formatEur(minNext)}.`);
-      return;
-    }
+    if (amount < minNext) { Alert.alert("Bid too low", `Min next bid is ${formatEur(minNext)}.`); return; }
     setSubmitting(true);
-    const { error } = await supabase
-      .from("bids")
-      .insert({ auction_id: id, bidder_id: user.id, amount_eur: amount });
+    const { error } = await supabase.from("bids").insert({ auction_id: id, bidder_id: user.id, amount_eur: amount });
     setSubmitting(false);
-    if (error) {
-      Alert.alert("Bid failed", error.message);
-      return;
-    }
+    if (error) { Alert.alert("Bid failed", error.message); return; }
     await refresh();
   };
 
   const buyNow = async () => {
     if (!user || !auction?.buy_now_price_eur) return;
     setSubmitting(true);
-    const { error } = await supabase
-      .from("bids")
-      .insert({ auction_id: id, bidder_id: user.id, amount_eur: auction.buy_now_price_eur });
+    const { error } = await supabase.from("bids").insert({ auction_id: id, bidder_id: user.id, amount_eur: auction.buy_now_price_eur });
     setSubmitting(false);
     setBuyOpen(false);
-    if (error) {
-      Alert.alert("Couldn't complete purchase", error.message);
-      return;
-    }
-    Alert.alert("You won!", "Your purchase has been recorded. Our team will follow up.");
+    if (error) { Alert.alert("Couldn't complete purchase", error.message); return; }
+    Alert.alert(t("auction.buyWonTitle"), t("auction.buyWonBody"));
     await refresh();
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={theme.colors.brand} /></View>;
+  if (loading) return <Spinner label="Loading auction…" />;
   if (!auction) return <View style={styles.center}><Text>Auction not found.</Text></View>;
 
   return (
-    <ScrollView style={{ backgroundColor: theme.colors.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
-      <Pressable onPress={() => navigation.navigate("VehicleDetail", { id: auction.vehicle_id })}>
-        <Text style={styles.backLink}>← {auction.vehicle.year} {auction.vehicle.make} {auction.vehicle.model}</Text>
-      </Pressable>
-
-      {/* Status + countdown */}
-      <View style={styles.statusRow}>
-        {auction.status === "active" && (
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>LIVE</Text>
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+        {/* Status banner */}
+        {userHasBid && (
+          <View style={[styles.statusBanner, isWinning ? styles.statusWinning : styles.statusOutbid]}>
+            <Ionicons
+              name={isWinning ? "trophy" : "alert-circle"}
+              size={18}
+              color={isWinning ? theme.colors.success : theme.colors.error}
+            />
+            <Text style={[styles.statusText, { color: isWinning ? theme.colors.success : theme.colors.error }]}>
+              {isWinning ? "You're winning!" : "You've been outbid"}
+            </Text>
           </View>
         )}
-        <Text style={styles.countdown}>{formatRemaining(auction.end_time)}</Text>
-        {!!isWinning && <View style={[styles.tag, { backgroundColor: theme.colors.successBg }]}><Text style={[styles.tagText, { color: theme.colors.success }]}>You are winning</Text></View>}
-      </View>
 
-      {/* Bid panel */}
-      <View style={styles.card}>
-        <Text style={styles.label}>Current bid</Text>
-        <Text style={styles.bigPrice}>{formatEur(currentBid)}</Text>
-        <Text style={styles.sub}>
-          {auction.bid_count} bids · {auction.bidder_count} bidders
-        </Text>
+        <Pressable onPress={() => navigation.navigate("VehicleDetail", { id: auction.vehicle_id })}>
+          <Text style={styles.vehicleLink}>{auction.vehicle.year} {auction.vehicle.make} {auction.vehicle.model} ›</Text>
+        </Pressable>
 
-        <Text style={[styles.label, { marginTop: 18 }]}>Your bid</Text>
-        <Text style={styles.minHint}>Min next bid: {formatEur(minNext)}</Text>
-        <View style={styles.stepRow}>
-          <Pressable
-            onPress={() => setAmount((a) => Math.max(minNext, a - bidIncrement(a)))}
-            style={styles.stepBtn}
-            disabled={ended || submitting}
-          >
-            <Text style={styles.stepBtnText}>−</Text>
-          </Pressable>
-          <TextInput
-            value={String(amount)}
-            onChangeText={(v) => setAmount(Math.max(0, Number(v.replace(/[^0-9]/g, "") || 0)))}
-            keyboardType="numeric"
-            style={styles.bidInput}
-            editable={!ended && !submitting}
-          />
-          <Pressable
-            onPress={() => setAmount((a) => a + bidIncrement(a))}
-            style={styles.stepBtn}
-            disabled={ended || submitting}
-          >
-            <Text style={styles.stepBtnText}>+</Text>
-          </Pressable>
+        {/* Current bid — HUGE */}
+        <View style={styles.bigPriceCard}>
+          <Text style={styles.priceLabel}>{t("auction.currentBid")}</Text>
+          <Text style={styles.bigPrice}>{formatEur(currentBid)}</Text>
+          <Text style={styles.priceSub}>
+            {t("auction.bidsBidders", { bids: auction.bid_count, bidders: auction.bidder_count })}
+          </Text>
         </View>
 
-        {ended ? (
-          <Button label="Auction ended" disabled fullWidth style={{ marginTop: 14 }} />
-        ) : (
-          <Button label={submitting ? "Placing…" : "Place bid"} onPress={placeBid} loading={submitting} fullWidth style={{ marginTop: 14 }} />
-        )}
+        {/* Countdown — pulses under 1h, turns red under 5m */}
+        <Animated.View style={[
+          styles.countdownCard,
+          urgentCountdown && { transform: [{ scale: pulse }], borderColor: theme.colors.error, backgroundColor: theme.colors.errorBg },
+          { borderWidth: 2 },
+        ]}>
+          <Ionicons name="time-outline" size={18} color={urgentCountdown ? theme.colors.error : theme.colors.textMuted} />
+          <Text style={[styles.countdownText, urgentCountdown && { color: theme.colors.error }]}>
+            {ended ? t("auction.ended") : formatRemaining(auction.end_time)}
+          </Text>
+        </Animated.View>
 
-        {!ended && auction.buy_now_price_eur != null && (
-          <Button
-            label={`Buy now · ${formatEur(auction.buy_now_price_eur)}`}
-            variant="outline"
-            onPress={() => setBuyOpen(true)}
-            fullWidth
-            style={{ marginTop: 8 }}
-          />
-        )}
-      </View>
+        {/* Bid input + actions */}
+        <View style={styles.bidPanel}>
+          <Text style={styles.label}>{t("auction.yourBid")}</Text>
+          <Text style={styles.minHint}>{t("auction.minBid", { price: formatEur(minNext) })}</Text>
+          <View style={styles.stepRow}>
+            <Pressable
+              onPress={() => setAmount((a) => Math.max(minNext, a - bidIncrement(a)))}
+              style={styles.stepBtn} disabled={ended || submitting}
+            >
+              <Ionicons name="remove" size={22} color={theme.colors.text} />
+            </Pressable>
+            <TextInput
+              value={String(amount)}
+              onChangeText={(v) => setAmount(Math.max(0, Number(v.replace(/[^0-9]/g, "") || 0)))}
+              keyboardType="numeric"
+              style={styles.bidInput}
+              editable={!ended && !submitting}
+            />
+            <Pressable
+              onPress={() => setAmount((a) => a + bidIncrement(a))}
+              style={styles.stepBtn} disabled={ended || submitting}
+            >
+              <Ionicons name="add" size={22} color={theme.colors.text} />
+            </Pressable>
+          </View>
 
-      {/* Bid history */}
-      <View style={[styles.card, { marginTop: 16, paddingHorizontal: 0 }]}>
-        <Text style={[styles.label, { paddingHorizontal: 16 }]}>Bid history</Text>
-        {bids.length === 0 ? (
-          <Text style={[styles.muted, { paddingHorizontal: 16, paddingVertical: 8 }]}>No bids yet.</Text>
-        ) : (
-          <View style={{ marginTop: 8 }}>
-            {bids.slice(0, 30).map((b, i) => (
-              <View key={b.id} style={[
-                styles.bidRow,
-                i === 0 && { backgroundColor: theme.colors.successBg },
-              ]}>
-                <Text style={styles.bidId}>{b.is_proxy ? "Proxy bidder" : "Bidder"} #{b.bidder_id.slice(0, 6)}</Text>
+          {ended ? (
+            <Button label={t("auction.ended")} disabled fullWidth style={{ marginTop: 14 }} />
+          ) : (
+            <Pressable onPress={placeBid} disabled={submitting}>
+              <LinearGradient
+                colors={[theme.colors.brand, theme.colors.brandDark]}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={[styles.placeBidBtn, submitting && { opacity: 0.7 }]}
+              >
+                <Ionicons name="hammer-outline" size={16} color={theme.colors.white} />
+                <Text style={styles.placeBidText}>{submitting ? t("auction.placing") : t("auction.placeBid")}</Text>
+              </LinearGradient>
+            </Pressable>
+          )}
+
+          {!ended && auction.buy_now_price_eur != null && (
+            <Button
+              label={t("auction.buyNow", { price: formatEur(auction.buy_now_price_eur) })}
+              variant="outline" onPress={() => setBuyOpen(true)} fullWidth style={{ marginTop: 8 }}
+            />
+          )}
+        </View>
+
+        {/* Bid history with initials */}
+        <View style={styles.historyCard}>
+          <View style={styles.historyHeader}>
+            <Ionicons name="time-outline" size={16} color={theme.colors.brand} />
+            <Text style={styles.historyTitle}>{t("auction.history")}</Text>
+          </View>
+          {bids.length === 0 ? (
+            <Text style={styles.muted}>{t("auction.noBids")}</Text>
+          ) : (
+            bids.slice(0, 30).map((b, i) => (
+              <View key={b.id} style={[styles.bidRow, i === 0 && styles.bidRowTop]}>
+                <View style={styles.bidLeft}>
+                  <View style={[styles.avatar, b.bidder_id === user?.id && { backgroundColor: theme.colors.brand }]}>
+                    <Text style={[styles.avatarText, b.bidder_id === user?.id && { color: theme.colors.white }]}>
+                      {initials(b.bidder_id)}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text style={styles.bidName}>
+                      {b.bidder_id === user?.id ? "You" : `Bidder #${b.bidder_id.slice(0, 6)}`}
+                      {b.is_proxy && <Text style={styles.proxyTag}>  · proxy</Text>}
+                    </Text>
+                    {i === 0 && <Text style={styles.topTag}>Top bid</Text>}
+                  </View>
+                </View>
                 <Text style={styles.bidAmount}>{formatEur(b.amount_eur)}</Text>
               </View>
-            ))}
-          </View>
-        )}
-      </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
 
-      {/* Buy Now dialog */}
+      {/* Buy Now modal */}
       <Modal visible={buyOpen} transparent animationType="fade" onRequestClose={() => setBuyOpen(false)}>
         <View style={styles.modalScrim}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Buy now?</Text>
+            <Text style={styles.modalTitle}>{t("auction.buyNowQ")}</Text>
             <Text style={styles.modalBody}>
               You&apos;ll purchase {auction.vehicle.year} {auction.vehicle.make} {auction.vehicle.model} for{" "}
               <Text style={{ fontWeight: "800" }}>{formatEur(auction.buy_now_price_eur)}</Text>.
@@ -246,40 +270,80 @@ export function AuctionScreen({
             </Text>
             <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
               <Button label="Cancel" variant="outline" onPress={() => setBuyOpen(false)} style={{ flex: 1 }} />
-              <Button label="Yes, buy" onPress={buyNow} loading={submitting} style={{ flex: 1 }} />
+              <Button label={t("auction.buyNowConfirm")} onPress={buyNow} loading={submitting} style={{ flex: 1 }} />
             </View>
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  backLink: { color: theme.colors.textLight, marginBottom: 12 },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-  liveBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.colors.errorBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.error },
-  liveText: { color: theme.colors.error, fontSize: 11, fontWeight: "800" },
-  countdown: { fontSize: 14, fontWeight: "700", color: theme.colors.text },
-  tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full },
-  tagText: { fontSize: 11, fontWeight: "800" },
-  card: { backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.lg, padding: 16 },
-  label: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  bigPrice: { fontSize: 34, fontWeight: "800", color: theme.colors.text },
-  sub: { color: theme.colors.textLight, fontSize: 12, marginTop: 4 },
-  minHint: { fontSize: 11, color: theme.colors.textLight, marginTop: 4 },
-  stepRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
-  stepBtn: { width: 44, height: 44, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.borderStrong, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.white },
-  stepBtnText: { fontSize: 22, fontWeight: "800", color: theme.colors.text },
-  bidInput: { flex: 1, height: 44, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: theme.radius.md, paddingHorizontal: 12, fontSize: 16, fontWeight: "700", color: theme.colors.text, backgroundColor: theme.colors.white },
-  bidRow: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: theme.colors.border },
-  bidId: { color: theme.colors.textMuted, fontSize: 12 },
-  bidAmount: { color: theme.colors.text, fontSize: 13, fontWeight: "700" },
-  muted: { color: theme.colors.textLight, fontSize: 13 },
-  modalScrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 20 },
-  modalCard: { backgroundColor: theme.colors.white, borderRadius: theme.radius.xl, padding: 20, width: "100%" },
+
+  statusBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, marginBottom: 12 },
+  statusWinning: { backgroundColor: "#ecfdf3", borderWidth: 1, borderColor: "#a6f4c5" },
+  statusOutbid:  { backgroundColor: theme.colors.errorBg,   borderWidth: 1, borderColor: "#fda29b" },
+  statusText:    { fontSize: 13, fontWeight: "800" },
+
+  vehicleLink: { color: theme.colors.textMuted, fontSize: 13, marginBottom: 12, fontWeight: "600" },
+
+  bigPriceCard: {
+    backgroundColor: theme.colors.white, borderRadius: 16, padding: 20,
+    borderWidth: 1, borderColor: theme.colors.border,
+    shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  priceLabel: { fontSize: 11, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  bigPrice:   { fontSize: 48, fontWeight: "800", color: theme.colors.brand, marginTop: 4 },
+  priceSub:   { color: theme.colors.textLight, fontSize: 12, marginTop: 4, fontWeight: "600" },
+
+  countdownCard: {
+    backgroundColor: theme.colors.white, marginTop: 12, padding: 14, borderRadius: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    borderColor: theme.colors.border,
+  },
+  countdownText: { fontSize: 16, fontWeight: "800", color: theme.colors.text },
+
+  bidPanel: {
+    backgroundColor: theme.colors.white, marginTop: 12, padding: 18, borderRadius: 16,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  label:    { fontSize: 11, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  minHint:  { fontSize: 11, color: theme.colors.textLight, marginTop: 4 },
+  stepRow:  { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
+  stepBtn:  { width: 48, height: 48, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bgAlt },
+  bidInput: { flex: 1, height: 48, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 14, fontSize: 18, fontWeight: "800", color: theme.colors.text, backgroundColor: theme.colors.white, textAlign: "center" },
+  placeBidBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 52, borderRadius: 12, marginTop: 14,
+    shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  },
+  placeBidText: { color: theme.colors.white, fontSize: 16, fontWeight: "800" },
+
+  historyCard: {
+    backgroundColor: theme.colors.white, marginTop: 12, borderRadius: 16,
+    borderWidth: 1, borderColor: theme.colors.border, padding: 16,
+  },
+  historyHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  historyTitle:  { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+
+  bidRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingVertical: 10, borderTopWidth: 1, borderTopColor: theme.colors.border,
+  },
+  bidRowTop: { borderTopWidth: 0 },
+  bidLeft:   { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  avatar:    { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.bgAlt, alignItems: "center", justifyContent: "center" },
+  avatarText:{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted },
+  bidName:   { fontSize: 13, fontWeight: "700", color: theme.colors.text },
+  proxyTag:  { fontSize: 10, fontWeight: "700", color: theme.colors.brand },
+  topTag:    { fontSize: 10, fontWeight: "800", color: theme.colors.success, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2 },
+  bidAmount: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+  muted:     { color: theme.colors.textLight, fontSize: 13 },
+
+  modalScrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 20 },
+  modalCard:  { backgroundColor: theme.colors.white, borderRadius: 18, padding: 22, width: "100%" },
   modalTitle: { fontSize: 18, fontWeight: "800", color: theme.colors.text },
-  modalBody: { color: theme.colors.textMuted, fontSize: 14, marginTop: 8, lineHeight: 20 },
+  modalBody:  { color: theme.colors.textMuted, fontSize: 14, marginTop: 8, lineHeight: 20 },
 });

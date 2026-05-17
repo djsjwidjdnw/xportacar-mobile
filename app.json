@@ -22,16 +22,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1570EF"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
       "package": "com.xportacar.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store",
-      ["expo-notifications", { "color": "#1570EF" }]
+      "expo-secure-store"
     ],
     "extra": {
       "supabaseUrl": "https://klettmjnnttajdyajafn.supabase.co",

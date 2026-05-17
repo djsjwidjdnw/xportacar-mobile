@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert, FlatList, RefreshControl, StyleSheet, Text, TextInput, View,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 
 import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
+import { Spinner } from "../components/Spinner";
+import { EmptyState } from "../components/EmptyState";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { useAuth } from "../lib/auth";
@@ -11,7 +17,7 @@ import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
-  const { t, isRtl } = useTranslation();
+  const { t } = useTranslation();
   const { ids: watchIds, toggle: toggleWatch } = useWatchlist(user?.id ?? null);
   const [items, setItems] = useState<VehicleListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,9 +55,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
     setItems(list);
   }, []);
 
-  useEffect(() => {
-    fetchVehicles().finally(() => setLoading(false));
-  }, [fetchVehicles]);
+  useEffect(() => { fetchVehicles().finally(() => setLoading(false)); }, [fetchVehicles]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -67,45 +71,65 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
     : items;
 
   const onToggle = async (vehicleId: string) => {
-    if (!user) {
-      Alert.alert("Sign in required", t("watchlist.signin"));
-      return;
-    }
+    if (!user) { Alert.alert("Sign in required", t("watchlist.signin")); return; }
     const result = await toggleWatch(vehicleId);
     if (result === "error") Alert.alert("Couldn't update watchlist");
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.center, { flex: 1, backgroundColor: theme.colors.bg }]}>
-        <ActivityIndicator color={theme.colors.brand} size="large" />
-        <Text style={styles.loadingMsg}>{t("marketplace.title")}…</Text>
-      </View>
-    );
-  }
+  const liveCount = items.filter((v) => v.auction?.status === "active").length;
+
+  if (loading) return <Spinner label={`${t("marketplace.title")}…`} />;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.bg, direction: isRtl ? "rtl" : "ltr" }}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{t("marketplace.title")}</Text>
-        <Text style={styles.subtitle}>
-          {t("marketplace.results", { count: filtered.length, total: items.length })}
-        </Text>
-      </View>
-      <View style={styles.searchWrap}>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t("marketplace.search")}
-          placeholderTextColor={theme.colors.textLight}
-          style={styles.search}
-          autoCapitalize="none"
-        />
-      </View>
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <FlatList
         data={filtered}
         keyExtractor={(v) => v.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        ListHeaderComponent={
+          <View>
+            {/* Hero banner — dark navy → brand blue gradient */}
+            <LinearGradient
+              colors={["#101828", theme.colors.brand]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.hero}
+            >
+              <Text style={styles.heroEyebrow}>UAE → EUROPE</Text>
+              <Text style={styles.heroTitle}>Premium GCC Vehicles</Text>
+              <Text style={styles.heroSubtitle}>Inspected. Auctioned. Delivered to Europe.</Text>
+              <View style={styles.heroStats}>
+                <View>
+                  <Text style={styles.heroStatNum}>{items.length}</Text>
+                  <Text style={styles.heroStatLabel}>vehicles</Text>
+                </View>
+                <View style={styles.heroDivider} />
+                <View>
+                  <Text style={styles.heroStatNum}>{liveCount}</Text>
+                  <Text style={styles.heroStatLabel}>live now</Text>
+                </View>
+              </View>
+            </LinearGradient>
+
+            {/* Search */}
+            <View style={styles.searchWrap}>
+              <Ionicons name="search-outline" size={18} color={theme.colors.textLight} style={{ marginRight: 8 }} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder={t("marketplace.search")}
+                placeholderTextColor={theme.colors.textLight}
+                style={styles.search}
+                autoCapitalize="none"
+                returnKeyType="search"
+              />
+            </View>
+
+            <Text style={styles.resultsLabel}>
+              {t("marketplace.results", { count: filtered.length, total: items.length })}
+            </Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <VehicleCard
             vehicle={item}
@@ -114,9 +138,16 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
           />
         )}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brand} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.brand}
+            colors={[theme.colors.brand]}
+          />
+        }
         ListEmptyComponent={
-          <View style={styles.empty}><Text style={styles.emptyText}>{t("marketplace.empty")}</Text></View>
+          <EmptyState icon="car-outline" title="No matches" body={t("marketplace.empty")} />
         }
       />
     </View>
@@ -124,17 +155,25 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
 }
 
 const styles = StyleSheet.create({
-  center: { alignItems: "center", justifyContent: "center" },
-  loadingMsg: { marginTop: 12, color: theme.colors.textLight, fontSize: 13 },
-  header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-  title: { fontSize: 28, fontWeight: "800", color: theme.colors.text },
-  subtitle: { fontSize: 13, color: theme.colors.textLight, marginTop: 4 },
-  searchWrap: { paddingHorizontal: 16, paddingBottom: 12 },
-  search: {
-    height: 44, borderRadius: theme.radius.md, borderWidth: 1,
-    borderColor: theme.colors.borderStrong, paddingHorizontal: 14, fontSize: 14,
-    backgroundColor: theme.colors.white, color: theme.colors.text,
+  hero: {
+    marginTop: 16, padding: 24, borderRadius: 20, marginBottom: 16,
+    shadowColor: theme.colors.brand, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4,
   },
-  empty: { padding: 32, alignItems: "center" },
-  emptyText: { color: theme.colors.textLight, fontSize: 13 },
+  heroEyebrow:  { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "800", letterSpacing: 1.2 },
+  heroTitle:    { color: theme.colors.white, fontSize: 26, fontWeight: "800", marginTop: 6 },
+  heroSubtitle: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 4, lineHeight: 18 },
+  heroStats:    { flexDirection: "row", alignItems: "center", marginTop: 18 },
+  heroStatNum:  { color: theme.colors.white, fontSize: 22, fontWeight: "800" },
+  heroStatLabel:{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  heroDivider:  { width: 1, height: 30, backgroundColor: "rgba(255,255,255,0.2)", marginHorizontal: 20 },
+
+  searchWrap: {
+    flexDirection: "row", alignItems: "center",
+    height: 48, borderRadius: 12, borderWidth: 1,
+    borderColor: theme.colors.border, paddingHorizontal: 14,
+    backgroundColor: theme.colors.white, marginBottom: 12,
+  },
+  search: { flex: 1, fontSize: 14, color: theme.colors.text },
+
+  resultsLabel: { fontSize: 12, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 },
 });

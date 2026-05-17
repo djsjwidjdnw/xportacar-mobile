@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
+import { EmptyState } from "../components/EmptyState";
+import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
@@ -62,15 +64,17 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
   };
 
   if (!user) {
-    return <View style={styles.empty}><Text style={styles.muted}>{t("watchlist.signin")}</Text></View>;
-  }
-  if (loading) {
     return (
-      <View style={[styles.empty, { flex: 1, justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={theme.colors.brand} />
+      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+        <EmptyState
+          icon="lock-closed-outline"
+          title="Sign in to save vehicles"
+          body={t("watchlist.signin")}
+        />
       </View>
     );
   }
+  if (loading) return <Spinner label="Loading watchlist…" />;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -78,8 +82,15 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       <FlatList
         data={items}
         keyExtractor={(v) => v.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brand} />}
-        contentContainerStyle={{ padding: 16 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.brand}
+            colors={[theme.colors.brand]}
+          />
+        }
+        contentContainerStyle={{ padding: 16, flexGrow: 1 }}
         renderItem={({ item }) => (
           <VehicleCard
             vehicle={item}
@@ -88,7 +99,13 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
           />
         )}
-        ListEmptyComponent={<View style={styles.empty}><Text style={styles.muted}>{t("watchlist.empty")}</Text></View>}
+        ListEmptyComponent={
+          <EmptyState
+            icon="heart-outline"
+            title="Your watchlist is empty"
+            body="No vehicles saved yet. Browse the marketplace to find your next purchase."
+          />
+        }
       />
     </View>
   );
@@ -96,6 +113,4 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
 
 const styles = StyleSheet.create({
   header: { fontSize: 24, fontWeight: "800", color: theme.colors.text, padding: 16, paddingBottom: 4 },
-  empty: { padding: 40, alignItems: "center" },
-  muted: { color: theme.colors.textLight, textAlign: "center" },
 });

@@ -49,7 +49,9 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
       }, { onConflict: "id" });
     }
     if (data.session) {
-      registerForPush().catch(() => {});
+      // Push is best-effort — Expo Go SDK 53+ removed push token support
+      // so wrap defensively so a sync throw can't take the app down.
+      try { void registerForPush().catch(() => {}); } catch { /* silent */ }
       Alert.alert("Welcome to XportACar", "Your trade account is live.");
     } else {
       Alert.alert("Check your email", "Confirm your email to finish signing up.");

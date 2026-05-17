@@ -1,21 +1,25 @@
 import { useState } from "react";
 import {
-  Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
+  Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { Button } from "../components/Button";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { registerForPush } from "../lib/push";
+import { useTranslation } from "../lib/i18n";
 
 export function LoginScreen({ navigation }: { navigation: { navigate: (s: string) => void } }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const signIn = async () => {
     if (!email || !password) {
-      Alert.alert("Missing info", "Enter your email and password.");
+      Alert.alert("Missing info", t("auth.missing"));
       return;
     }
     setLoading(true);
@@ -25,28 +29,25 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
       Alert.alert("Sign in failed", error.message);
       return;
     }
-    // Fire-and-forget push registration.
-    registerForPush().catch(() => {});
+    try { void registerForPush().catch(() => {}); } catch { /* silent */ }
   };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={{ flex: 1, backgroundColor: theme.colors.bg }}
+      style={{ flex: 1, backgroundColor: theme.colors.white }}
     >
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.brandRow}>
-          <View style={styles.logo}><Text style={styles.logoMark}>X</Text></View>
-          <Text style={styles.brand}>XportACar</Text>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        {/* Logo + tagline */}
+        <View style={styles.header}>
+          <Image source={require("../../assets/logo.jpg")} style={styles.logo} resizeMode="contain" />
+          <Text style={styles.tagline}>Export Cars. Connect Worlds.</Text>
         </View>
 
-        <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>
-          Sign in to bid on premium UAE-sourced vehicles.
-        </Text>
+        <Text style={styles.title}>{t("auth.welcomeBack")}</Text>
+        <Text style={styles.subtitle}>{t("auth.signInBlurb")}</Text>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Email</Text>
+        <Field label={t("auth.email")}>
           <TextInput
             value={email}
             onChangeText={setEmail}
@@ -57,10 +58,9 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
             placeholderTextColor={theme.colors.textLight}
             style={styles.input}
           />
-        </View>
+        </Field>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Password</Text>
+        <Field label={t("auth.password")}>
           <TextInput
             value={password}
             onChangeText={setPassword}
@@ -69,39 +69,79 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
             placeholderTextColor={theme.colors.textLight}
             style={styles.input}
           />
-        </View>
+        </Field>
 
-        <Button label={loading ? "Signing in…" : "Sign in"} onPress={signIn} loading={loading} fullWidth style={{ marginTop: 8 }} />
+        {/* Gradient sign-in button */}
+        <GradientButton
+          label={loading ? t("auth.signingIn") : t("auth.signIn")}
+          onPress={signIn}
+          loading={loading}
+        />
 
         <Button
-          label="Create a trade account"
+          label={t("auth.createAccount")}
           variant="ghost"
           onPress={() => navigation.navigate("Register")}
-          style={{ marginTop: 8 }}
+          style={{ marginTop: 4 }}
         />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function GradientButton({ label, onPress, loading }: { label: string; onPress: () => void; loading: boolean }) {
+  return (
+    <View style={{ marginTop: 14 }}>
+      <LinearGradient
+        colors={[theme.colors.brand, theme.colors.brandDark]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.gradientBtnWrap}
+      >
+        <Text
+          onPress={loading ? undefined : onPress}
+          style={styles.gradientBtnLabel}
+          suppressHighlighting
+        >
+          {label}
+        </Text>
+      </LinearGradient>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { padding: 24, paddingTop: 64, paddingBottom: 48 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 40 },
-  logo: { width: 36, height: 36, borderRadius: 8, backgroundColor: theme.colors.brand, alignItems: "center", justifyContent: "center" },
-  logoMark: { color: theme.colors.white, fontWeight: "800", fontSize: 18 },
-  brand: { fontSize: 18, fontWeight: "800", color: theme.colors.text },
-  title: { fontSize: 28, fontWeight: "800", color: theme.colors.text },
-  subtitle: { marginTop: 8, color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 28 },
-  field: { marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: "600", color: theme.colors.text, marginBottom: 6 },
+  container: { padding: 24, paddingTop: 56, paddingBottom: 48 },
+  header:    { alignItems: "center", marginBottom: 32 },
+  logo:      { width: 180, height: 72 },
+  tagline:   { marginTop: 10, fontSize: 13, fontWeight: "600", color: theme.colors.brand, letterSpacing: 0.5 },
+  title:     { fontSize: 28, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
+  subtitle:  { marginTop: 6, color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center", marginBottom: 24 },
+  field:     { marginBottom: 16 },
+  label:     { fontSize: 12, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
   input: {
-    height: 48,
-    borderRadius: theme.radius.md,
+    height: 52,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.colors.borderStrong,
-    paddingHorizontal: 14,
-    fontSize: 15,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 16,
+    fontSize: 16,
     color: theme.colors.text,
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.bgAlt,
   },
+  gradientBtnWrap: {
+    height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
+    shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  gradientBtnLabel: { color: theme.colors.white, fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
 });

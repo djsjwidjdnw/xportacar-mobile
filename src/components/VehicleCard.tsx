@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { Image } from "expo-image";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { theme, formatEur, formatKm, formatRemaining } from "../lib/theme";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
@@ -21,8 +23,23 @@ export function VehicleCard({
 }) {
   const live = vehicle.auction?.status === "active";
   const price = live ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur) : vehicle.listed_price_eur;
+
+  // Pulsing green dot on live cards.
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!live) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.6, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.0, duration: 700, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [live, pulse]);
+
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.92 }]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}>
       <View style={styles.imageWrap}>
         <Image
           source={vehicle.photo_url ? { uri: vehicle.photo_url } : require("../../assets/icon.png")}
@@ -32,12 +49,13 @@ export function VehicleCard({
         />
         {live && (
           <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
+            <Animated.View style={[styles.liveDot, { transform: [{ scale: pulse }] }]} />
             <Text style={styles.liveText}>LIVE</Text>
           </View>
         )}
         {live && vehicle.auction && (
           <View style={styles.timerBadge}>
+            <Ionicons name="time-outline" size={12} color={theme.colors.white} />
             <Text style={styles.timerText}>{formatRemaining(vehicle.auction.end_time)}</Text>
           </View>
         )}
@@ -48,11 +66,11 @@ export function VehicleCard({
             style={({ pressed }) => [styles.heartBtn, pressed && { opacity: 0.85 }]}
             accessibilityLabel={isWatching ? "Remove from watchlist" : "Add to watchlist"}
           >
-            {/* Filled heart when watching, outline when not — works with
-                any font that supports ♥ and ♡. */}
-            <Text style={[styles.heartIcon, isWatching && styles.heartIconActive]}>
-              {isWatching ? "♥" : "♡"}
-            </Text>
+            <Ionicons
+              name={isWatching ? "heart" : "heart-outline"}
+              size={20}
+              color={isWatching ? theme.colors.error : theme.colors.textMuted}
+            />
           </Pressable>
         )}
       </View>
@@ -63,68 +81,91 @@ export function VehicleCard({
         <Text style={styles.subtitle} numberOfLines={1}>
           {vehicle.exterior_color} · {vehicle.location_city}
         </Text>
+
         <View style={styles.specRow}>
-          <Text style={styles.spec}>{formatKm(vehicle.mileage_km)}</Text>
-          <Text style={styles.dot}>·</Text>
-          <Text style={styles.spec}>{vehicle.fuel_type}</Text>
-          <Text style={styles.dot}>·</Text>
-          <Text style={styles.spec}>{vehicle.transmission}</Text>
+          <Spec icon="speedometer-outline">{formatKm(vehicle.mileage_km)}</Spec>
+          <Spec icon="flash-outline" capitalize>{vehicle.fuel_type}</Spec>
+          <Spec icon="cog-outline"   capitalize>{vehicle.transmission}</Spec>
         </View>
+
         <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>{live ? "Current bid" : "Starting price"}</Text>
-          <Text style={styles.price}>{formatEur(price)}</Text>
+          <View>
+            <Text style={styles.priceLabel}>{live ? "Current bid" : "Starting price"}</Text>
+            <Text style={styles.price}>{formatEur(price)}</Text>
+          </View>
+          {vehicle.auction && (
+            <Text style={styles.bidsSub}>
+              {vehicle.auction.bid_count} bids · {vehicle.auction.bidder_count} bidders
+            </Text>
+          )}
         </View>
-        {vehicle.auction && (
-          <Text style={styles.bidsSub}>
-            {vehicle.auction.bid_count} bids · {vehicle.auction.bidder_count} bidders
-          </Text>
-        )}
       </View>
     </Pressable>
+  );
+}
+
+function Spec({
+  icon, capitalize, children,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  capitalize?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.specPill}>
+      <Ionicons name={icon} size={11} color={theme.colors.textMuted} />
+      <Text style={[styles.spec, capitalize && { textTransform: "capitalize" }]}>{children}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderRadius: 16,
     overflow: "hidden",
     marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  imageWrap: { aspectRatio: 16 / 10, backgroundColor: theme.colors.bgAlt, position: "relative" },
-  image: { width: "100%", height: "100%" },
+  imageWrap: { height: 200, backgroundColor: theme.colors.bgAlt, position: "relative" },
+  image:     { width: "100%", height: "100%" },
   liveBadge: {
-    position: "absolute", top: 10, left: 10, backgroundColor: theme.colors.errorBg,
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: theme.radius.full,
+    position: "absolute", top: 12, left: 12, backgroundColor: theme.colors.success,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
+    flexDirection: "row", alignItems: "center", gap: 6,
+  },
+  liveDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.white },
+  liveText:  { color: theme.colors.white, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  timerBadge:{
+    position: "absolute", bottom: 12, right: 12, backgroundColor: "rgba(16,24,40,0.9)",
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: theme.radius.full,
     flexDirection: "row", alignItems: "center", gap: 4,
   },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.error },
-  liveText: { color: theme.colors.error, fontSize: 10, fontWeight: "800" },
-  timerBadge: {
-    position: "absolute", bottom: 10, right: 10, backgroundColor: "rgba(16,24,40,0.85)",
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
-  },
   timerText: { color: theme.colors.white, fontSize: 11, fontWeight: "700" },
-  heartBtn: {
-    position: "absolute", top: 10, right: 10,
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.92)",
+  heartBtn:  {
+    position: "absolute", top: 12, right: 12,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.95)",
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+    shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  heartIcon:       { fontSize: 18, color: theme.colors.textMuted, marginTop: -1 },
-  heartIconActive: { color: theme.colors.error },
-  body: { padding: 14 },
-  title: { fontSize: 15, fontWeight: "700", color: theme.colors.text },
-  subtitle: { fontSize: 12, color: theme.colors.textLight, marginTop: 2 },
-  specRow: { flexDirection: "row", alignItems: "center", marginTop: 8, gap: 6 },
-  spec: { fontSize: 11, color: theme.colors.textMuted, textTransform: "capitalize" },
-  dot:  { fontSize: 11, color: theme.colors.textLight },
-  priceRow: { marginTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  priceLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  price: { fontSize: 17, fontWeight: "800", color: theme.colors.text },
-  bidsSub: { marginTop: 4, fontSize: 11, color: theme.colors.textLight },
+  body:      { padding: 16 },
+  title:     { fontSize: 16, fontWeight: "800", color: theme.colors.text },
+  subtitle:  { fontSize: 12, color: theme.colors.textLight, marginTop: 3 },
+  specRow:   { flexDirection: "row", alignItems: "center", marginTop: 12, gap: 6, flexWrap: "wrap" },
+  specPill:  {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.bgAlt,
+  },
+  spec:      { fontSize: 11, color: theme.colors.textMuted, fontWeight: "600" },
+  priceRow:  { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.border, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
+  priceLabel:{ fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  price:     { fontSize: 20, fontWeight: "800", color: theme.colors.brand, marginTop: 2 },
+  bidsSub:   { fontSize: 11, color: theme.colors.textLight, fontWeight: "600" },
 });

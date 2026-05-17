@@ -1,7 +1,7 @@
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Text } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { LoginScreen as LoginScreenImpl } from "./screens/LoginScreen";
 import { RegisterScreen as RegisterScreenImpl } from "./screens/RegisterScreen";
@@ -43,12 +43,16 @@ const navTheme = {
   },
 };
 
-function TabIcon({ label, focused }: { label: string; focused: boolean }) {
-  return (
-    <Text style={{ fontSize: 18, color: focused ? theme.colors.brand : theme.colors.textLight }}>
-      {label}
-    </Text>
-  );
+function makeTabIcon(name: keyof typeof Ionicons.glyphMap) {
+  return function TabIcon({ focused, color }: { focused: boolean; color: string }) {
+    return (
+      <Ionicons
+        name={name}
+        size={focused ? 24 : 22}
+        color={color}
+      />
+    );
+  };
 }
 
 function MarketplaceStack() {
@@ -88,14 +92,36 @@ function MainTabs() {
         headerShown: false,
         tabBarActiveTintColor: theme.colors.brand,
         tabBarInactiveTintColor: theme.colors.textLight,
-        tabBarStyle: { backgroundColor: theme.colors.white, borderTopColor: theme.colors.border, height: 64, paddingTop: 6, paddingBottom: 10 },
-        tabBarLabelStyle: { fontWeight: "600", fontSize: 11 },
+        tabBarStyle: {
+          backgroundColor: theme.colors.white,
+          borderTopColor: theme.colors.border,
+          height: 68,
+          paddingTop: 8,
+          paddingBottom: 12,
+        },
+        tabBarLabelStyle: { fontWeight: "700", fontSize: 11, marginTop: 2 },
       }}
     >
-      <Tabs.Screen name="Marketplace" component={MarketplaceStack} options={{ tabBarIcon: ({ focused }) => <TabIcon label="🛒" focused={focused} /> }} />
-      <Tabs.Screen name="MyBids"      component={MyBidsStack}      options={{ tabBarLabel: "My bids",  tabBarIcon: ({ focused }) => <TabIcon label="⚖️" focused={focused} /> }} />
-      <Tabs.Screen name="Watchlist"   component={WatchlistStack}   options={{ tabBarIcon: ({ focused }) => <TabIcon label="❤️" focused={focused} /> }} />
-      <Tabs.Screen name="Profile"     component={ProfileScreen}    options={{ tabBarIcon: ({ focused }) => <TabIcon label="👤" focused={focused} /> }} />
+      <Tabs.Screen
+        name="Marketplace"
+        component={MarketplaceStack}
+        options={{ tabBarIcon: makeTabIcon("cart-outline") }}
+      />
+      <Tabs.Screen
+        name="MyBids"
+        component={MyBidsStack}
+        options={{ tabBarLabel: "My bids", tabBarIcon: makeTabIcon("flash-outline") }}
+      />
+      <Tabs.Screen
+        name="Watchlist"
+        component={WatchlistStack}
+        options={{ tabBarIcon: makeTabIcon("heart-outline") }}
+      />
+      <Tabs.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ tabBarIcon: makeTabIcon("person-outline") }}
+      />
     </Tabs.Navigator>
   );
 }

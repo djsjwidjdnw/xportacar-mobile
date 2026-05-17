@@ -4,6 +4,7 @@
 //   via I18nProvider in App.tsx, with a SecureStore fallback for guests.
 
 import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { I18nManager } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { supabase } from "./supabase";
 
@@ -323,6 +324,20 @@ function format(template: string, values?: Record<string, string | number>): str
   return template.replace(/\{(\w+)\}/g, (_, k) => String(values[k] ?? ""));
 }
 
+// RTL via RN's I18nManager — the supported cross-platform path.  The
+// per-View `direction` style only works on iOS and crashes Android.
+// I18nManager flips the global writing direction; the change takes effect
+// after the JS bundle reloads (Android requires a native restart, which
+// happens on next app launch in production).
+function applyRtl(shouldBeRtl: boolean) {
+  try {
+    I18nManager.allowRTL(shouldBeRtl);
+    if (I18nManager.isRTL !== shouldBeRtl) {
+      I18nManager.forceRTL(shouldBeRtl);
+    }
+  } catch { /* RN platform without I18nManager (web) — no-op */ }
+}
+
 // ------- Context wiring ----------------------------------------------
 
 interface I18nValue {
@@ -356,12 +371,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         const stored = await SecureStore.getItemAsync(STORE_KEY).catch(() => null);
         if (stored && SUPPORTED.includes(stored as Locale)) next = stored as Locale;
       }
-      if (next) setLocaleState(next);
+      if (next) {
+        setLocaleState(next);
+        applyRtl(next === "ar");
+      }
     })();
   }, []);
 
   const setLocale = useCallback(async (next: Locale) => {
     setLocaleState(next);
+    applyRtl(next === "ar");
     await SecureStore.setItemAsync(STORE_KEY, next).catch(() => {});
     // Best-effort: persist to profile so the web app picks it up too.
     try {
