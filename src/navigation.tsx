@@ -6,9 +6,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { LoginScreen as LoginScreenImpl } from "./screens/LoginScreen";
 import { RegisterScreen as RegisterScreenImpl } from "./screens/RegisterScreen";
 import { MarketplaceScreen as MarketplaceScreenImpl } from "./screens/MarketplaceScreen";
+import { LiveAuctionsScreen as LiveAuctionsScreenImpl } from "./screens/LiveAuctionsScreen";
 import { VehicleDetailScreen as VehicleDetailScreenImpl } from "./screens/VehicleDetailScreen";
 import { AuctionScreen as AuctionScreenImpl } from "./screens/AuctionScreen";
-import { MyBidsScreen as MyBidsScreenImpl } from "./screens/MyBidsScreen";
 import { WatchlistScreen as WatchlistScreenImpl } from "./screens/WatchlistScreen";
 import { ProfileScreen as ProfileScreenImpl } from "./screens/ProfileScreen";
 
@@ -19,9 +19,9 @@ type AnyScreen = React.ComponentType<Record<string, unknown>>;
 const LoginScreen          = LoginScreenImpl          as unknown as AnyScreen;
 const RegisterScreen       = RegisterScreenImpl       as unknown as AnyScreen;
 const MarketplaceScreen    = MarketplaceScreenImpl    as unknown as AnyScreen;
+const LiveAuctionsScreen   = LiveAuctionsScreenImpl   as unknown as AnyScreen;
 const VehicleDetailScreen  = VehicleDetailScreenImpl  as unknown as AnyScreen;
 const AuctionScreen        = AuctionScreenImpl        as unknown as AnyScreen;
-const MyBidsScreen         = MyBidsScreenImpl         as unknown as AnyScreen;
 const WatchlistScreen      = WatchlistScreenImpl      as unknown as AnyScreen;
 const ProfileScreen        = ProfileScreenImpl        as unknown as AnyScreen;
 
@@ -65,10 +65,10 @@ function MarketplaceStack() {
   );
 }
 
-function MyBidsStack() {
+function LiveStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="MyBidsHome"  component={MyBidsScreen} />
+      <Stack.Screen name="LiveHome"      component={LiveAuctionsScreen} />
       <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
       <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
     </Stack.Navigator>
@@ -79,6 +79,16 @@ function WatchlistStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="WatchlistHome" component={WatchlistScreen} />
+      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
+      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
+    </Stack.Navigator>
+  );
+}
+
+function ProfileStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ProfileHome"   component={ProfileScreen} />
       <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
       <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
     </Stack.Navigator>
@@ -108,9 +118,9 @@ function MainTabs() {
         options={{ tabBarIcon: makeTabIcon("cart-outline") }}
       />
       <Tabs.Screen
-        name="MyBids"
-        component={MyBidsStack}
-        options={{ tabBarLabel: "My bids", tabBarIcon: makeTabIcon("flash-outline") }}
+        name="Live"
+        component={LiveStack}
+        options={{ tabBarLabel: "Live", tabBarIcon: makeTabIcon("flash-outline") }}
       />
       <Tabs.Screen
         name="Watchlist"
@@ -119,7 +129,7 @@ function MainTabs() {
       />
       <Tabs.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={ProfileStack}
         options={{ tabBarIcon: makeTabIcon("person-outline") }}
       />
     </Tabs.Navigator>

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Image } from "expo-image";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme, formatEur, formatKm, formatRemaining } from "../lib/theme";
+import { theme, formatEur, formatKm, formatRemaining, formatScheduledStart } from "../lib/theme";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export interface VehicleListItem extends VehicleRow {
@@ -22,6 +22,7 @@ export function VehicleCard({
   onToggleWatch?: () => void;
 }) {
   const live = vehicle.auction?.status === "active";
+  const scheduled = vehicle.auction?.status === "scheduled";
   const price = live ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur) : vehicle.listed_price_eur;
 
   // Pulsing green dot on live cards.
@@ -53,10 +54,22 @@ export function VehicleCard({
             <Text style={styles.liveText}>LIVE</Text>
           </View>
         )}
+        {scheduled && vehicle.auction && (
+          <View style={styles.scheduledBadge}>
+            <Ionicons name="calendar-outline" size={11} color={theme.colors.white} />
+            <Text style={styles.scheduledText}>SCHEDULED</Text>
+          </View>
+        )}
         {live && vehicle.auction && (
           <View style={styles.timerBadge}>
             <Ionicons name="time-outline" size={12} color={theme.colors.white} />
             <Text style={styles.timerText}>{formatRemaining(vehicle.auction.end_time)}</Text>
+          </View>
+        )}
+        {scheduled && vehicle.auction && (
+          <View style={styles.timerBadge}>
+            <Ionicons name="calendar-outline" size={12} color={theme.colors.white} />
+            <Text style={styles.timerText}>Starts {formatScheduledStart(vehicle.auction.start_time)}</Text>
           </View>
         )}
         {onToggleWatch && (
@@ -90,13 +103,25 @@ export function VehicleCard({
 
         <View style={styles.priceRow}>
           <View>
-            <Text style={styles.priceLabel}>{live ? "Current bid" : "Starting price"}</Text>
-            <Text style={styles.price}>{formatEur(price)}</Text>
+            <Text style={styles.priceLabel}>
+              {live ? "Current bid" : scheduled ? "Starting price" : "Listed price"}
+            </Text>
+            <Text style={styles.price}>
+              {formatEur(scheduled ? vehicle.auction?.starting_price_eur : price)}
+            </Text>
           </View>
-          {vehicle.auction && (
+          {vehicle.auction && live && (
             <Text style={styles.bidsSub}>
               {vehicle.auction.bid_count} bids · {vehicle.auction.bidder_count} bidders
             </Text>
+          )}
+          {vehicle.auction && scheduled && (
+            <View style={styles.scheduleHint}>
+              <Ionicons name="time-outline" size={11} color={theme.colors.brand} />
+              <Text style={styles.scheduleHintText}>
+                {formatScheduledStart(vehicle.auction.start_time)}
+              </Text>
+            </View>
           )}
         </View>
       </View>
@@ -140,10 +165,16 @@ const styles = StyleSheet.create({
   },
   liveDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.white },
   liveText:  { color: theme.colors.white, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  scheduledBadge: {
+    position: "absolute", top: 12, left: 12, backgroundColor: theme.colors.brand,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
+    flexDirection: "row", alignItems: "center", gap: 4,
+  },
+  scheduledText: { color: theme.colors.white, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
   timerBadge:{
     position: "absolute", bottom: 12, right: 12, backgroundColor: "rgba(16,24,40,0.9)",
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: theme.radius.full,
-    flexDirection: "row", alignItems: "center", gap: 4,
+    flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "75%",
   },
   timerText: { color: theme.colors.white, fontSize: 11, fontWeight: "700" },
   heartBtn:  {
@@ -168,4 +199,11 @@ const styles = StyleSheet.create({
   priceLabel:{ fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   price:     { fontSize: 20, fontWeight: "800", color: theme.colors.brand, marginTop: 2 },
   bidsSub:   { fontSize: 11, color: theme.colors.textLight, fontWeight: "600" },
+  scheduleHint: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4,
+    backgroundColor: theme.colors.brandLight,
+    borderRadius: theme.radius.full,
+  },
+  scheduleHintText: { fontSize: 10, fontWeight: "800", color: theme.colors.brand },
 });

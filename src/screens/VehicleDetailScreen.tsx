@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
-import { theme, formatEur, formatKm, formatRemaining } from "../lib/theme";
+import { theme, formatEur, formatKm, formatRemaining, formatScheduledStartLong } from "../lib/theme";
 import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow } from "../lib/types";
 
 type VehicleFull = VehicleRow & {
@@ -23,6 +23,15 @@ const SEVERITY_COLOR: Record<string, { bg: string; fg: string; border: string }>
   moderate: { bg: "#fff4ed", fg: "#c4320a", border: "#feb273" },
   major:    { bg: theme.colors.errorBg,   fg: theme.colors.error, border: "#fda29b" },
 };
+
+// Door-to-port estimates from Jebel Ali. Source of truth for both web + mobile;
+// keep these in sync with the web app's shipping table.
+const SHIPPING_PORTS = [
+  { city: "Hamburg",   country: "Germany",     priceEur: 1800, days: 28, icon: "boat-outline" as const },
+  { city: "Rotterdam", country: "Netherlands", priceEur: 1600, days: 25, icon: "boat-outline" as const },
+  { city: "Genoa",     country: "Italy",       priceEur: 2100, days: 22, icon: "boat-outline" as const },
+  { city: "Barcelona", country: "Spain",       priceEur: 2200, days: 24, icon: "boat-outline" as const },
+];
 
 export function VehicleDetailScreen({
   route, navigation,
@@ -57,13 +66,21 @@ export function VehicleDetailScreen({
 
   const photos = (vehicle.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order);
   const auction = vehicle.auctions?.[0];
-  const live = auction?.status === "active";
+  const live      = auction?.status === "active";
+  const scheduled = auction?.status === "scheduled";
+  const ended     = auction?.status === "ended" || auction?.status === "sold";
   const price = live ? (auction?.current_bid_eur ?? auction?.starting_price_eur) : vehicle.listed_price_eur;
+  const buyNowAvailable = live && auction?.buy_now_price_eur != null;
   const width = Dimensions.get("window").width;
+
+  const goAuction = () => auction && navigation.navigate("Auction", { id: auction.id });
+  const goBuyNow  = () => auction && navigation.navigate("Auction", { id: auction.id, buyNow: true });
+
+  const stickyVisible = !!auction; // any auction → some CTA appears
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: live ? 100 : 32 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: stickyVisible ? 110 : 32 }}>
         {/* Carousel */}
         <View>
           <FlatList
@@ -86,6 +103,12 @@ export function VehicleDetailScreen({
               <Text style={styles.liveText}>LIVE · {formatRemaining(auction.end_time)}</Text>
             </View>
           )}
+          {scheduled && auction && (
+            <View style={[styles.liveBadge, { backgroundColor: theme.colors.brand }]}>
+              <Ionicons name="calendar-outline" size={11} color={theme.colors.white} />
+              <Text style={[styles.liveText, { color: theme.colors.white }]}>SCHEDULED</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.body}>
@@ -93,6 +116,16 @@ export function VehicleDetailScreen({
           <Text style={styles.subtitle}>
             {vehicle.exterior_color} · {vehicle.interior_color} · {vehicle.location_city}, {vehicle.location_country}
           </Text>
+
+          {scheduled && auction && (
+            <View style={styles.scheduledCard}>
+              <Ionicons name="calendar" size={18} color={theme.colors.brand} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduledLabel}>Auction starts</Text>
+                <Text style={styles.scheduledValue}>{formatScheduledStartLong(auction.start_time)}</Text>
+              </View>
+            </View>
+          )}
 
           {/* Specs */}
           <Section title="Specifications" icon="information-circle-outline">
@@ -105,6 +138,33 @@ export function VehicleDetailScreen({
               <Spec icon="color-palette-outline"  label="Exterior"     value={vehicle.exterior_color ?? "—"} />
               <Spec icon="color-fill-outline"     label="Interior"     value={vehicle.interior_color ?? "—"} />
               <Spec icon="pricetag-outline"       label="Listed price" value={formatEur(vehicle.listed_price_eur)} />
+            </View>
+          </Section>
+
+          {/* Shipping estimate */}
+          <Section title="Shipping to Europe" icon="boat-outline">
+            <Text style={styles.shipSub}>Door-to-port estimates from Jebel Ali, Dubai.</Text>
+            <View style={styles.shipCard}>
+              <View style={styles.shipHeaderRow}>
+                <Text style={[styles.shipHeader, { flex: 2 }]}>Port</Text>
+                <Text style={[styles.shipHeader, { flex: 1, textAlign: "right" }]}>From</Text>
+                <Text style={[styles.shipHeader, { width: 70, textAlign: "right" }]}>ETA</Text>
+              </View>
+              {SHIPPING_PORTS.map((p, i) => (
+                <View key={p.city} style={[styles.shipRow, i === SHIPPING_PORTS.length - 1 && { borderBottomWidth: 0 }]}>
+                  <View style={[styles.shipCity, { flex: 2 }]}>
+                    <View style={styles.shipIconWrap}>
+                      <Ionicons name={p.icon} size={14} color={theme.colors.brand} />
+                    </View>
+                    <View>
+                      <Text style={styles.shipCityName}>{p.city}</Text>
+                      <Text style={styles.shipCountry}>{p.country}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.shipPrice, { flex: 1, textAlign: "right" }]}>{formatEur(p.priceEur)}</Text>
+                  <Text style={[styles.shipDays, { width: 70, textAlign: "right" }]}>{p.days} days</Text>
+                </View>
+              ))}
             </View>
           </Section>
 
@@ -157,26 +217,49 @@ export function VehicleDetailScreen({
         </View>
       </ScrollView>
 
-      {/* Sticky bottom CTA bar — only when an auction is live */}
-      {live && auction && (
+      {/* Sticky bottom CTA bar — adapts to auction state */}
+      {stickyVisible && (
         <View style={styles.stickyBar}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.stickyLabel}>Current bid</Text>
-            <Text style={styles.stickyPrice}>{formatEur(price)}</Text>
+            <Text style={styles.stickyLabel}>
+              {live ? "Current bid" : scheduled ? "Starting price" : ended ? "Final price" : "Listed price"}
+            </Text>
+            <Text style={styles.stickyPrice}>
+              {formatEur(live ? price : scheduled ? auction?.starting_price_eur : ended ? (auction?.current_bid_eur ?? auction?.starting_price_eur) : price)}
+            </Text>
           </View>
-          <Pressable
-            onPress={() => navigation.navigate("Auction", { id: auction.id })}
-            style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
-          >
-            <LinearGradient
-              colors={[theme.colors.brand, theme.colors.brandDark]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={styles.stickyCta}
+          <View style={styles.stickyCtas}>
+            {buyNowAvailable && (
+              <Pressable
+                onPress={goBuyNow}
+                style={({ pressed }) => [styles.buyNowBtn, pressed && { opacity: 0.9 }]}
+              >
+                <Ionicons name="flash" size={14} color={theme.colors.brand} />
+                <Text style={styles.buyNowText}>
+                  Buy now {formatEur(auction?.buy_now_price_eur)}
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={goAuction}
+              style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
             >
-              <Ionicons name="hammer-outline" size={16} color={theme.colors.white} />
-              <Text style={styles.stickyCtaText}>Place Bid</Text>
-            </LinearGradient>
-          </Pressable>
+              <LinearGradient
+                colors={[theme.colors.brand, theme.colors.brandDark]}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={styles.stickyCta}
+              >
+                <Ionicons
+                  name={live ? "hammer-outline" : scheduled ? "eye-outline" : "albums-outline"}
+                  size={16}
+                  color={theme.colors.white}
+                />
+                <Text style={styles.stickyCtaText}>
+                  {live ? "Place Bid" : scheduled ? "View Auction" : "View Auction"}
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
         </View>
       )}
     </View>
@@ -243,6 +326,15 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: "800", color: theme.colors.text },
   subtitle: { color: theme.colors.textLight, marginTop: 4, fontSize: 13, lineHeight: 18 },
 
+  // Scheduled banner
+  scheduledCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    marginTop: 16, padding: 14, borderRadius: 12,
+    backgroundColor: theme.colors.brandLight, borderWidth: 1, borderColor: "#b2ddff",
+  },
+  scheduledLabel: { fontSize: 10, fontWeight: "800", color: theme.colors.brand, textTransform: "uppercase", letterSpacing: 0.6 },
+  scheduledValue: { fontSize: 14, fontWeight: "800", color: theme.colors.text, marginTop: 2 },
+
   // Section
   section: { marginTop: 24 },
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
@@ -258,6 +350,26 @@ const styles = StyleSheet.create({
   },
   specLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
   specValue: { fontSize: 13, color: theme.colors.text, fontWeight: "700", marginTop: 2 },
+
+  // Shipping table
+  shipSub: { fontSize: 12, color: theme.colors.textLight, marginTop: -6, marginBottom: 12 },
+  shipCard: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border,
+    paddingHorizontal: 14, paddingVertical: 4,
+  },
+  shipHeaderRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  shipHeader: { fontSize: 10, fontWeight: "800", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.5 },
+  shipRow: {
+    flexDirection: "row", alignItems: "center", paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
+  shipCity: { flexDirection: "row", alignItems: "center", gap: 10 },
+  shipIconWrap: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.brandLight, alignItems: "center", justifyContent: "center" },
+  shipCityName: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+  shipCountry:  { fontSize: 11, color: theme.colors.textLight, fontWeight: "600", marginTop: 1 },
+  shipPrice: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+  shipDays:  { fontSize: 12, color: theme.colors.textMuted, fontWeight: "600" },
 
   // Tags
   tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
@@ -299,6 +411,13 @@ const styles = StyleSheet.create({
   },
   stickyLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   stickyPrice: { fontSize: 22, fontWeight: "800", color: theme.colors.brand },
+  stickyCtas: { flexDirection: "row", alignItems: "center", gap: 8 },
+  buyNowBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 14, height: 48, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight,
+  },
+  buyNowText: { color: theme.colors.brand, fontSize: 13, fontWeight: "800" },
   stickyCta: {
     flexDirection: "row", alignItems: "center", gap: 6,
     paddingHorizontal: 24, height: 48, borderRadius: 12,

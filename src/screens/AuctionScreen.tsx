@@ -34,10 +34,10 @@ function initials(id: string): string {
 export function AuctionScreen({
   route, navigation,
 }: {
-  route: { params: { id: string } };
+  route: { params: { id: string; buyNow?: boolean } };
   navigation: { navigate: (s: string, p?: object) => void };
 }) {
-  const { id } = route.params;
+  const { id, buyNow: autoBuyNow } = route.params;
   const { user } = useAuth();
   const { t } = useTranslation();
   const [auction, setAuction] = useState<AuctionFull | null>(null);
@@ -47,6 +47,14 @@ export function AuctionScreen({
   const [submitting, setSubmitting] = useState(false);
   const [buyOpen, setBuyOpen] = useState(false);
   const [_tick, setTick] = useState(0);
+
+  // When the buyer tapped "Buy now" on the detail screen, open the modal
+  // automatically once the auction has loaded.
+  useEffect(() => {
+    if (autoBuyNow && auction?.buy_now_price_eur && auction.status === "active") {
+      setBuyOpen(true);
+    }
+  }, [autoBuyNow, auction]);
 
   // 1s tick so countdown updates.
   useEffect(() => {

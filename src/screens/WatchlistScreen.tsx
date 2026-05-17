@@ -11,6 +11,11 @@ import { useTranslation } from "../lib/i18n";
 import { theme } from "../lib/theme";
 import type { VehicleRow, AuctionRow } from "../lib/types";
 
+// Two-step load to avoid PostgREST embed ambiguity:
+//   1. fetch the user's watch IDs
+//   2. fetch those vehicles with photos + auctions in a single query
+// The previous one-step embed (`vehicle:vehicles!vehicle_id(...)`) silently
+// returned empty rows in some environments, so we do this defensively.
 export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -18,43 +23,43 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
   const [items, setItems] = useState<VehicleListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (vehicleIds: string[]) => {
+    setError(null);
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase
-      .from("watchlist")
+    if (vehicleIds.length === 0) { setItems([]); return; }
+
+    const { data, error: err } = await supabase
+      .from("vehicles")
       .select(`
-        vehicle:vehicles!vehicle_id (
-          *,
-          vehicle_photos (url, sort_order),
-          auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
-        )
+        *,
+        vehicle_photos (url, sort_order),
+        auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)
-      .eq("user_id", user.id);
-    // deno-lint-ignore no-explicit-any
-    const list: VehicleListItem[] = ((data as any[]) ?? [])
-      .map((row) => row.vehicle).filter(Boolean)
-      .map((v: VehicleRow & { vehicle_photos?: { url: string; sort_order: number }[]; auctions?: AuctionRow[] }) => {
-        const photo = (v.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
-        const auction = v.auctions?.[0] ?? null;
-        const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
-        return { ...(rest as VehicleRow), photo_url: photo, auction };
-      });
+      .in("id", vehicleIds);
+
+    if (err) { setError(err.message); setItems([]); return; }
+
+    type Row = VehicleRow & { vehicle_photos?: { url: string; sort_order: number }[]; auctions?: AuctionRow[] };
+    const list: VehicleListItem[] = ((data ?? []) as Row[]).map((v) => {
+      const photo = (v.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
+      const auction = v.auctions?.[0] ?? null;
+      const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
+      return { ...(rest as VehicleRow), photo_url: photo, auction };
+    });
     setItems(list);
   }, [user]);
 
-  useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
-
-  // When the watchlist set updates from anywhere (heart toggle), re-pull.
+  // When watchIds change (initial load, hook toggle), re-fetch the vehicles.
   useEffect(() => {
-    // Keep `items` in sync with `watchIds` by filtering out removed entries
-    // immediately so the UI feels instant.
-    setItems((prev) => prev.filter((v) => watchIds.has(v.id)));
-  }, [watchIds]);
+    load(Array.from(watchIds)).finally(() => setLoading(false));
+  }, [watchIds, load]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([reload(), load()]);
+    await reload();
+    // reload triggers watchIds change → effect re-fetches.
     setRefreshing(false);
   };
 
@@ -79,6 +84,14 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Text style={styles.header}>{t("watchlist.title")}</Text>
+      {items.length > 0 && (
+        <Text style={styles.count}>{items.length} saved</Text>
+      )}
+      {error && (
+        <View style={styles.errBox}>
+          <Text style={styles.errText}>Couldn&apos;t load watchlist: {error}</Text>
+        </View>
+      )}
       <FlatList
         data={items}
         keyExtractor={(v) => v.id}
@@ -112,5 +125,8 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
 }
 
 const styles = StyleSheet.create({
-  header: { fontSize: 24, fontWeight: "800", color: theme.colors.text, padding: 16, paddingBottom: 4 },
+  header: { fontSize: 24, fontWeight: "800", color: theme.colors.text, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  count:  { fontSize: 12, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 16, paddingBottom: 8 },
+  errBox: { marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 8, backgroundColor: theme.colors.errorBg, borderWidth: 1, borderColor: "#fda29b" },
+  errText:{ color: theme.colors.error, fontSize: 12, fontWeight: "600" },
 });

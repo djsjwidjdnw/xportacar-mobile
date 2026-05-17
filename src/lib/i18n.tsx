@@ -17,10 +17,22 @@ type Dict = Record<string, string>;
 const en: Dict = {
   "nav.marketplace": "Marketplace",
   "nav.auctions":    "Live Auctions",
+  "nav.live":        "Live",
   "nav.myBids":      "My Bids",
   "nav.watchlist":   "Watchlist",
   "nav.profile":     "Profile",
   "nav.signOut":     "Sign out",
+
+  "live.title":       "Live Auctions",
+  "live.subtitle":    "Bid right now on cars ending soon.",
+  "live.empty":       "No live auctions at the moment. Check back soon.",
+  "live.endingSoon":  "Ending soonest first",
+
+  "vehicle.scheduled":  "Starts {when}",
+  "vehicle.scheduledShort": "Scheduled",
+  "vehicle.shipping":   "Shipping to Europe",
+  "vehicle.shippingNote": "Estimates · door-to-port from Jebel Ali, Dubai",
+  "vehicle.buyNowFull": "Buy now {price}",
 
   "auth.welcomeBack":   "Welcome back",
   "auth.signInBlurb":   "Sign in to bid on premium UAE-sourced vehicles.",

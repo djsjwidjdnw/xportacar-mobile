@@ -58,3 +58,28 @@ export const formatRemaining = (endIso: string): string => {
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 };
+
+// Absolute calendar time, e.g. "May 18 · 3:00 PM" — used on cards for
+// scheduled auctions so buyers can plan when to come back to bid.
+export const formatScheduledStart = (startIso: string): string => {
+  const d = new Date(startIso);
+  return d.toLocaleString("en-GB", {
+    month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true,
+  }).replace(",", " ·");
+};
+
+// Long format for the auction detail / detail screen banner.
+export const formatScheduledStartLong = (startIso: string): string => {
+  const d = new Date(startIso);
+  return d.toLocaleString("en-GB", {
+    weekday: "short", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true,
+  });
+};
+
+// Member-since helper for the profile screen.
+export const formatMonthYear = (iso: string): string => {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+};

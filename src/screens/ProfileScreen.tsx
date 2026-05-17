@@ -1,31 +1,81 @@
 import { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 
-import { Button } from "../components/Button";
+import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import { theme } from "../lib/theme";
+import { useTranslation, SUPPORTED, type Locale } from "../lib/i18n";
+import { theme, formatEur, formatMonthYear } from "../lib/theme";
 import type { ProfileRow } from "../lib/types";
 
-export function ProfileScreen() {
+interface ExtendedProfile extends ProfileRow {
+  created_at?: string | null;
+  language?: string | null;
+}
+
+interface RecentBid {
+  id: string;
+  amount_eur: number;
+  created_at: string;
+  auction: {
+    id: string;
+    current_bid_eur: number | null;
+    status: string;
+    winner_id: string | null;
+    vehicle: { id: string; year: number; make: string; model: string } | null;
+  } | null;
+}
+
+const LANG_LABELS: Record<Locale, { label: string; flag: string }> = {
+  en: { label: "English",  flag: "🇬🇧" },
+  de: { label: "Deutsch",  flag: "🇩🇪" },
+  fr: { label: "Français", flag: "🇫🇷" },
+  ar: { label: "العربية",  flag: "🇦🇪" },
+};
+
+export function ProfileScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user, signOut } = useAuth();
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const { t, locale, setLocale } = useTranslation();
+  const [profile, setProfile] = useState<ExtendedProfile | null>(null);
+  const [loading, setLoading] = useState(true);
   const [fullName, setFullName] = useState("");
-  const [company, setCompany] = useState("");
-  const [country, setCountry] = useState("");
-  const [phone, setPhone] = useState("");
+  const [company, setCompany]   = useState("");
+  const [country, setCountry]   = useState("");
+  const [phone, setPhone]       = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [bids, setBids] = useState<RecentBid[]>([]);
+
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
     (async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-      const p = data as ProfileRow | null;
+      const [{ data: pRow }, { data: bRow }] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).single(),
+        supabase
+          .from("bids")
+          .select(`
+            id, amount_eur, created_at,
+            auction:auctions!auction_id (
+              id, current_bid_eur, status, winner_id,
+              vehicle:vehicles!vehicle_id (id, year, make, model)
+            )
+          `)
+          .eq("bidder_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(30),
+      ]);
+      const p = pRow as ExtendedProfile | null;
       setProfile(p);
       setFullName(p?.full_name ?? "");
       setCompany(p?.company_name ?? "");
       setCountry(p?.country ?? "");
       setPhone(p?.phone ?? "");
+      setBids((bRow as unknown as RecentBid[]) ?? []);
+      setLoading(false);
     })();
   }, [user]);
 
@@ -37,73 +87,336 @@ export function ProfileScreen() {
       .update({ full_name: fullName, company_name: company || null, country: country || null, phone: phone || null })
       .eq("id", user.id);
     setSaving(false);
-    if (error) {
-      Alert.alert("Couldn't save", error.message);
-      return;
-    }
-    Alert.alert("Saved", "Profile updated.");
+    if (error) { Alert.alert("Couldn't save", error.message); return; }
+    Alert.alert("Saved", t("profile.saved"));
+  };
+
+  const confirmSignOut = () => {
+    Alert.alert("Sign out?", "You'll need to enter your email and password again to bid.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: () => { void signOut(); } },
+    ]);
   };
 
   if (!user) {
-    return <View style={styles.empty}><Text style={styles.muted}>Sign in to view your profile.</Text></View>;
+    return (
+      <View style={[styles.empty, { flex: 1, justifyContent: "center" }]}>
+        <Text style={styles.muted}>{t("profile.signin")}</Text>
+      </View>
+    );
   }
+  if (loading) return <Spinner label="Loading profile…" />;
+
+  const displayName = profile?.full_name?.trim() || (user.email?.split("@")[0] ?? "Member");
+  const userInits = makeInitials(profile?.full_name, user.email);
+
+  // Reduce bids to top bid per auction for "Recent activity"
+  const byAuction = new Map<string, RecentBid>();
+  for (const r of bids) {
+    if (!r.auction) continue;
+    const cur = byAuction.get(r.auction.id);
+    if (!cur || r.amount_eur > cur.amount_eur) byAuction.set(r.auction.id, r);
+  }
+  const grouped = Array.from(byAuction.values());
+  const recent = grouped.slice(0, 5);
+  const won    = grouped.filter((r) => r.auction?.status === "sold" && r.auction?.winner_id === user.id);
 
   const kycTag = profile?.kyc_status === "verified"
-    ? { bg: theme.colors.successBg, fg: theme.colors.success, l: "KYC verified" }
+    ? { bg: theme.colors.successBg, fg: theme.colors.success, l: t("profile.kycOK"),     icon: "shield-checkmark" as const }
     : profile?.kyc_status === "rejected"
-    ? { bg: theme.colors.errorBg, fg: theme.colors.error, l: "KYC rejected" }
-    : { bg: theme.colors.warningBg, fg: theme.colors.warning, l: "KYC pending" };
+    ? { bg: theme.colors.errorBg,   fg: theme.colors.error,   l: t("profile.kycRej"),    icon: "alert-circle"      as const }
+    : { bg: theme.colors.warningBg, fg: theme.colors.warning, l: t("profile.kycPending"), icon: "time-outline"      as const };
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16 }} style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <Text style={styles.title}>Profile</Text>
-      <View style={styles.card}>
-        <Text style={styles.name}>{profile?.full_name ?? user.email}</Text>
-        <Text style={styles.email}>{user.email}</Text>
-        <View style={styles.row}>
-          <View style={[styles.tag, { backgroundColor: theme.colors.bgAlt }]}>
-            <Text style={styles.tagText}>{profile?.role ?? "buyer"}</Text>
+    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
+      <View style={styles.logoBar}>
+        <Image source={require("../../assets/logo.jpg")} style={styles.logo} resizeMode="contain" />
+      </View>
+
+      {/* Identity card */}
+      <LinearGradient
+        colors={["#101828", theme.colors.brand]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={styles.identityCard}
+      >
+        <View style={styles.avatarRow}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>{userInits}</Text>
           </View>
-          <View style={[styles.tag, { backgroundColor: kycTag.bg }]}>
-            <Text style={[styles.tagText, { color: kycTag.fg }]}>{kycTag.l}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.name}>{displayName}</Text>
+            <Text style={styles.email}>{user.email}</Text>
+            {profile?.company_name && (
+              <View style={styles.companyRow}>
+                <Ionicons name="business-outline" size={11} color="rgba(255,255,255,0.85)" />
+                <Text style={styles.company}>{profile.company_name}</Text>
+              </View>
+            )}
           </View>
         </View>
+
+        <View style={styles.tagRow}>
+          <View style={[styles.tag, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
+            <Ionicons name="person-outline" size={12} color={theme.colors.white} />
+            <Text style={[styles.tagText, { color: theme.colors.white, textTransform: "capitalize" }]}>{profile?.role ?? "buyer"}</Text>
+          </View>
+          <View style={[styles.tag, { backgroundColor: kycTag.bg }]}>
+            <Ionicons name={kycTag.icon} size={12} color={kycTag.fg} />
+            <Text style={[styles.tagText, { color: kycTag.fg }]}>{kycTag.l}</Text>
+          </View>
+          {profile?.created_at && (
+            <View style={[styles.tag, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
+              <Ionicons name="calendar-outline" size={12} color={theme.colors.white} />
+              <Text style={[styles.tagText, { color: theme.colors.white }]}>
+                Member since {formatMonthYear(profile.created_at)}
+              </Text>
+            </View>
+          )}
+        </View>
+      </LinearGradient>
+
+      {/* Recent bid activity */}
+      <SectionHeader icon="flash-outline" label="My recent bids" right={recent.length > 0 ? `${grouped.length} total` : undefined} />
+      {recent.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Ionicons name="flash-outline" size={20} color={theme.colors.textLight} />
+          <Text style={styles.emptyCardText}>No bids yet. Browse live auctions to get started.</Text>
+        </View>
+      ) : (
+        <View style={styles.card}>
+          {recent.map((b, i) => {
+            const a = b.auction!;
+            const winning = b.amount_eur >= (a.current_bid_eur ?? 0);
+            const ended   = a.status !== "active";
+            const tag = ended
+              ? (a.winner_id === user.id
+                ? { l: "Won",    bg: theme.colors.successBg, fg: theme.colors.success }
+                : { l: "Ended",  bg: theme.colors.bgAlt,     fg: theme.colors.textMuted })
+              : winning
+              ? { l: "Winning", bg: theme.colors.successBg, fg: theme.colors.success }
+              : { l: "Outbid",  bg: theme.colors.warningBg, fg: theme.colors.warning };
+            return (
+              <Pressable
+                key={b.id}
+                onPress={() => navigation.navigate("Auction", { id: a.id })}
+                style={({ pressed }) => [styles.bidRow, i === recent.length - 1 && { borderBottomWidth: 0 }, pressed && { opacity: 0.95 }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bidTitle}>
+                    {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}` : "—"}
+                  </Text>
+                  <Text style={styles.bidSub}>
+                    Your top {formatEur(b.amount_eur)} · Current {formatEur(a.current_bid_eur ?? 0)}
+                  </Text>
+                </View>
+                <View style={[styles.statusTag, { backgroundColor: tag.bg }]}>
+                  <Text style={[styles.statusTagText, { color: tag.fg }]}>{tag.l}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {/* Won auctions */}
+      {won.length > 0 && (
+        <>
+          <SectionHeader icon="trophy-outline" label="Won auctions" right={`${won.length}`} />
+          <View style={styles.card}>
+            {won.map((b, i) => (
+              <Pressable
+                key={b.id}
+                onPress={() => b.auction && navigation.navigate("Auction", { id: b.auction.id })}
+                style={({ pressed }) => [styles.bidRow, i === won.length - 1 && { borderBottomWidth: 0 }, pressed && { opacity: 0.95 }]}
+              >
+                <View style={[styles.wonIconWrap]}>
+                  <Ionicons name="trophy" size={16} color={theme.colors.success} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bidTitle}>
+                    {b.auction?.vehicle ? `${b.auction.vehicle.year} ${b.auction.vehicle.make} ${b.auction.vehicle.model}` : "—"}
+                  </Text>
+                  <Text style={styles.bidSub}>Won at {formatEur(b.amount_eur)}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.textLight} />
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
+
+      {/* Account details form */}
+      <SectionHeader icon="person-outline" label={t("profile.section")} />
+      <View style={styles.card}>
+        <Field label={t("auth.fullName")}><TextInput value={fullName} onChangeText={setFullName} style={styles.input} placeholder="Your name" placeholderTextColor={theme.colors.textLight} /></Field>
+        <Field label={t("auth.company")}><TextInput value={company} onChangeText={setCompany} style={styles.input} placeholder="Company GmbH" placeholderTextColor={theme.colors.textLight} /></Field>
+        <Field label={t("auth.country")}><TextInput value={country} onChangeText={setCountry} style={styles.input} placeholder="Germany" placeholderTextColor={theme.colors.textLight} /></Field>
+        <Field label={t("profile.phone")}><TextInput value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" placeholder="+49 …" placeholderTextColor={theme.colors.textLight} /></Field>
+        <Pressable onPress={save} disabled={saving} style={({ pressed }) => [styles.saveBtnShadow, pressed && { opacity: 0.92 }]}>
+          <LinearGradient
+            colors={[theme.colors.brand, theme.colors.brandDark]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={styles.saveBtn}
+          >
+            <Ionicons name="save-outline" size={16} color={theme.colors.white} />
+            <Text style={styles.saveBtnText}>{saving ? t("profile.saving") : t("profile.save")}</Text>
+          </LinearGradient>
+        </Pressable>
       </View>
 
-      <View style={[styles.card, { marginTop: 16 }]}>
-        <Text style={styles.section}>Account details</Text>
-        <Field label="Full name"><TextInput value={fullName} onChangeText={setFullName} style={styles.input} /></Field>
-        <Field label="Company"><TextInput value={company} onChangeText={setCompany} style={styles.input} /></Field>
-        <Field label="Country"><TextInput value={country} onChangeText={setCountry} style={styles.input} /></Field>
-        <Field label="Phone"><TextInput value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" /></Field>
-        <Button label={saving ? "Saving…" : "Save changes"} onPress={save} loading={saving} fullWidth style={{ marginTop: 8 }} />
+      {/* Language selector */}
+      <SectionHeader icon="language-outline" label="Language" />
+      <View style={styles.langCard}>
+        {SUPPORTED.map((code) => {
+          const info = LANG_LABELS[code];
+          const active = locale === code;
+          return (
+            <Pressable
+              key={code}
+              onPress={() => void setLocale(code)}
+              style={({ pressed }) => [styles.langBtn, active && styles.langBtnActive, pressed && { opacity: 0.92 }]}
+            >
+              <Text style={styles.langFlag}>{info.flag}</Text>
+              <Text style={[styles.langLabel, active && { color: theme.colors.brand }]}>{info.label}</Text>
+              {active && <Ionicons name="checkmark-circle" size={14} color={theme.colors.brand} />}
+            </Pressable>
+          );
+        })}
       </View>
 
-      <Button label="Sign out" variant="outline" onPress={signOut} fullWidth style={{ marginTop: 16 }} />
+      {/* Sign out — destructive red */}
+      <Pressable
+        onPress={confirmSignOut}
+        style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.92 }]}
+      >
+        <Ionicons name="log-out-outline" size={18} color={theme.colors.error} />
+        <Text style={styles.signOutText}>{t("nav.signOut")}</Text>
+      </Pressable>
+
+      <Text style={styles.versionText}>XportACar · v1.0.0</Text>
     </ScrollView>
+  );
+}
+
+function SectionHeader({ icon, label, right }: { icon: keyof typeof Ionicons.glyphMap; label: string; right?: string }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Ionicons name={icon} size={14} color={theme.colors.textLight} />
+      <Text style={styles.sectionLabel}>{label}</Text>
+      {right && <Text style={styles.sectionRight}>{right}</Text>}
+    </View>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.fieldLabel}>{label}</Text>
       {children}
     </View>
   );
 }
 
+function makeInitials(name?: string | null, email?: string | null): string {
+  const source = (name && name.trim()) || (email && email.split("@")[0]) || "?";
+  const parts = source.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 const styles = StyleSheet.create({
-  title: { fontSize: 24, fontWeight: "800", color: theme.colors.text, marginBottom: 12 },
-  card: { backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.lg, padding: 16 },
-  name: { fontSize: 18, fontWeight: "700", color: theme.colors.text },
-  email: { fontSize: 12, color: theme.colors.textLight, marginTop: 2 },
-  row: { flexDirection: "row", gap: 8, marginTop: 10 },
-  tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full },
-  tagText: { fontSize: 11, fontWeight: "700", color: theme.colors.textMuted, textTransform: "capitalize" },
-  section: { fontSize: 15, fontWeight: "800", color: theme.colors.text, marginBottom: 12 },
-  label: { fontSize: 11, fontWeight: "700", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 },
-  input: { height: 46, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.borderStrong, paddingHorizontal: 12, color: theme.colors.text, fontSize: 14, backgroundColor: theme.colors.white },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 40 },
+  // Logo bar at top
+  logoBar: { alignItems: "center", paddingTop: 18, paddingBottom: 6, backgroundColor: theme.colors.bg },
+  logo:    { width: 140, height: 50 },
+
+  // Identity card
+  identityCard: {
+    margin: 16, padding: 20, borderRadius: 20,
+    shadowColor: theme.colors.brand, shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4,
+  },
+  avatarRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16 },
+  avatarCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "rgba(255,255,255,0.25)",
+  },
+  avatarText: { color: theme.colors.white, fontSize: 22, fontWeight: "800", letterSpacing: 0.5 },
+  name:  { color: theme.colors.white, fontSize: 18, fontWeight: "800" },
+  email: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
+  companyRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  company: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "700" },
+
+  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  tag:    { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: theme.radius.full },
+  tagText:{ fontSize: 11, fontWeight: "800" },
+
+  // Section headers
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10 },
+  sectionLabel:  { fontSize: 11, fontWeight: "800", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.6 },
+  sectionRight:  { marginLeft: "auto", fontSize: 11, fontWeight: "700", color: theme.colors.textLight },
+
+  // Card
+  card: {
+    marginHorizontal: 16,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.xl,
+    padding: 16,
+    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+
+  // Bid rows inside Recent/Won cards
+  bidRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
+  bidTitle: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+  bidSub:   { fontSize: 11, color: theme.colors.textLight, marginTop: 3, fontWeight: "600" },
+  statusTag:{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full },
+  statusTagText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  wonIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.successBg, alignItems: "center", justifyContent: "center" },
+
+  emptyCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    marginHorizontal: 16, padding: 16,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, borderStyle: "dashed",
+  },
+  emptyCardText: { fontSize: 12, color: theme.colors.textLight, fontWeight: "600", flex: 1 },
+
+  // Account form
+  fieldLabel: { fontSize: 11, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 },
+  input: { height: 46, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 14, color: theme.colors.text, fontSize: 14, backgroundColor: theme.colors.white },
+  saveBtnShadow: { marginTop: 8, borderRadius: theme.radius.lg, shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  saveBtn: { height: 48, borderRadius: theme.radius.lg, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  saveBtnText: { color: theme.colors.white, fontWeight: "800", fontSize: 14 },
+
+  // Language card
+  langCard: {
+    marginHorizontal: 16,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.xl,
+    padding: 8,
+    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  langBtn: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 12, borderRadius: theme.radius.md },
+  langBtnActive: { backgroundColor: theme.colors.brandLight },
+  langFlag: { fontSize: 20 },
+  langLabel: { flex: 1, fontSize: 14, fontWeight: "700", color: theme.colors.text },
+
+  // Sign out
+  signOutBtn: {
+    marginHorizontal: 16, marginTop: 24,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 50, borderRadius: theme.radius.lg,
+    borderWidth: 1, borderColor: "#fda29b",
+    backgroundColor: theme.colors.errorBg,
+  },
+  signOutText: { color: theme.colors.error, fontSize: 14, fontWeight: "800" },
+
+  versionText: { textAlign: "center", marginTop: 18, fontSize: 11, color: theme.colors.textLight, fontWeight: "600" },
+
+  empty: { padding: 32, alignItems: "center" },
   muted: { color: theme.colors.textLight, textAlign: "center" },
 });
