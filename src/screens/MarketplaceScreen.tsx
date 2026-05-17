@@ -35,12 +35,21 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       .in("status", ["listed", "in_auction"])
       .order("updated_at", { ascending: false });
     if (error) { setItems([]); return; }
-    // deno-lint-ignore no-explicit-any
-    const list: VehicleListItem[] = (data as any[]).map((row) => {
+    // PostgREST returns the auctions embed as a single object when the FK
+    // is unique (auctions.vehicle_id is). Handle array OR object shape.
+    type Row = VehicleRow & {
+      vehicle_photos?: { url: string; sort_order: number }[];
+      auctions?: AuctionRow[] | AuctionRow | null;
+    };
+    const pickAuction = (a: Row["auctions"]): AuctionRow | null => {
+      if (!a) return null;
+      if (Array.isArray(a)) return a[0] ?? null;
+      return a;
+    };
+    const list: VehicleListItem[] = (data as Row[]).map((row) => {
       const photos = (row.vehicle_photos ?? []) as { url: string; sort_order: number }[];
       const photo = photos.sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
-      const auctions = (row.auctions ?? []) as AuctionRow[];
-      const auction = auctions[0] ?? null;
+      const auction = pickAuction(row.auctions);
       const { vehicle_photos: _v, auctions: _a, ...rest } = row;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });

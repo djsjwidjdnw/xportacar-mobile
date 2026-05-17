@@ -35,22 +35,40 @@ export function LiveAuctionsScreen({ navigation }: { navigation: { navigate: (s:
         auctions!inner (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)
       .eq("auctions.status", "active");
-    if (error) { setItems([]); return; }
-    type Row = VehicleRow & { vehicle_photos?: { url: string; sort_order: number }[]; auctions?: AuctionRow[] };
+    if (error) { console.warn("[LiveAuctions] query error:", error.message); setItems([]); return; }
+    // PostgREST returns an embedded resource as a SINGLE OBJECT (not array)
+    // when the FK has a UNIQUE constraint — auctions.vehicle_id is unique,
+    // so `v.auctions` is `{ ... }` here, not `[{ ... }]`. Handle both.
+    type Row = VehicleRow & {
+      vehicle_photos?: { url: string; sort_order: number }[];
+      auctions?: AuctionRow[] | AuctionRow | null;
+    };
+    const pickAuction = (a: Row["auctions"]): AuctionRow | null => {
+      if (!a) return null;
+      if (Array.isArray(a)) return a[0] ?? null;
+      return a;
+    };
     const list: VehicleListItem[] = ((data ?? []) as Row[]).map((v) => {
       const photo = (v.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
-      const auction = v.auctions?.[0] ?? null;
+      const auction = pickAuction(v.auctions);
       const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
+    // Drop anything that's actually past end_time even though the DB still
+    // marks status=active (the cron that ends auctions runs periodically;
+    // a stale row would otherwise render as a permanent "00:00:00" card).
+    const fresh = list.filter((v) =>
+      v.auction && new Date(v.auction.end_time).getTime() > Date.now(),
+    );
     // Soonest ending first.
-    list.sort((a, b) => {
+    fresh.sort((a, b) => {
       const ae = a.auction?.end_time;
       const be = b.auction?.end_time;
       if (ae && be) return new Date(ae).getTime() - new Date(be).getTime();
       return 0;
     });
-    setItems(list);
+    console.log(`[LiveAuctions] DB returned ${list.length} vehicles; ${fresh.length} still in-window`);
+    setItems(fresh);
   }, []);
 
   useEffect(() => { fetchLive().finally(() => setLoading(false)); }, [fetchLive]);

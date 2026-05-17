@@ -41,10 +41,18 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
 
     if (err) { setError(err.message); setItems([]); return; }
 
-    type Row = VehicleRow & { vehicle_photos?: { url: string; sort_order: number }[]; auctions?: AuctionRow[] };
+    type Row = VehicleRow & {
+      vehicle_photos?: { url: string; sort_order: number }[];
+      auctions?: AuctionRow[] | AuctionRow | null;
+    };
+    const pickAuction = (a: Row["auctions"]): AuctionRow | null => {
+      if (!a) return null;
+      if (Array.isArray(a)) return a[0] ?? null;
+      return a;
+    };
     const list: VehicleListItem[] = ((data ?? []) as Row[]).map((v) => {
       const photo = (v.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
-      const auction = v.auctions?.[0] ?? null;
+      const auction = pickAuction(v.auctions);
       const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
