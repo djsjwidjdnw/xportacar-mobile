@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
 import { EmptyState } from "../components/EmptyState";
@@ -11,36 +12,60 @@ import { useTranslation } from "../lib/i18n";
 import { theme } from "../lib/theme";
 import type { VehicleRow, AuctionRow } from "../lib/types";
 
-// Two-step load to avoid PostgREST embed ambiguity:
-//   1. fetch the user's watch IDs
-//   2. fetch those vehicles with photos + auctions in a single query
-// The previous one-step embed (`vehicle:vehicles!vehicle_id(...)`) silently
-// returned empty rows in some environments, so we do this defensively.
+// Owns its own load (does NOT subscribe to the useWatchlist hook's id Set —
+// other screens' instances had stale local state that never propagated here).
+// On every focus we re-query both the watchlist table AND the vehicle rows
+// so hearts toggled elsewhere always appear when the user opens this tab.
 export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const { ids: watchIds, toggle: toggleWatch, reload } = useWatchlist(user?.id ?? null);
+  const { toggle: toggleWatch, reload: reloadIds } = useWatchlist(user?.id ?? null);
   const [items, setItems] = useState<VehicleListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (vehicleIds: string[]) => {
+  const loadFromDb = useCallback(async () => {
+    if (!user) {
+      console.log("[Watchlist] no user, skipping load");
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     setError(null);
-    if (!user) { setLoading(false); return; }
-    if (vehicleIds.length === 0) { setItems([]); return; }
-
-    const { data, error: err } = await supabase
+    console.log("[Watchlist] step 1: fetching watchlist rows for user", user.id);
+    const { data: wlRows, error: wlErr } = await supabase
+      .from("watchlist")
+      .select("vehicle_id")
+      .eq("user_id", user.id);
+    if (wlErr) {
+      console.warn("[Watchlist] watchlist query error:", wlErr.message);
+      setError(wlErr.message);
+      setItems([]);
+      return;
+    }
+    const ids = ((wlRows ?? []) as { vehicle_id: string }[]).map((r) => r.vehicle_id);
+    console.log(`[Watchlist] step 1: got ${ids.length} watchlist ids`, ids);
+    if (ids.length === 0) {
+      setItems([]);
+      return;
+    }
+    console.log("[Watchlist] step 2: fetching vehicles for ids");
+    const { data: vehicles, error: vErr } = await supabase
       .from("vehicles")
       .select(`
         *,
         vehicle_photos (url, sort_order),
         auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)
-      .in("id", vehicleIds);
-
-    if (err) { console.warn("[Watchlist] vehicles error:", err.message); setError(err.message); setItems([]); return; }
-    console.log(`[Watchlist] step 2 returned ${(data ?? []).length} vehicles for ${vehicleIds.length} ids`);
+      .in("id", ids);
+    if (vErr) {
+      console.warn("[Watchlist] vehicles query error:", vErr.message);
+      setError(vErr.message);
+      setItems([]);
+      return;
+    }
+    console.log(`[Watchlist] step 2: got ${(vehicles ?? []).length} vehicles for ${ids.length} ids`);
 
     type Row = VehicleRow & {
       vehicle_photos?: { url: string; sort_order: number }[];
@@ -51,30 +76,39 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       if (Array.isArray(a)) return a[0] ?? null;
       return a;
     };
-    const list: VehicleListItem[] = ((data ?? []) as Row[]).map((v) => {
+    const list: VehicleListItem[] = ((vehicles ?? []) as Row[]).map((v) => {
       const photo = (v.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
       const auction = pickAuction(v.auctions);
       const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
+    console.log(`[Watchlist] built ${list.length} list items`);
     setItems(list);
   }, [user]);
 
-  // When watchIds change (initial load, hook toggle), re-fetch the vehicles.
-  useEffect(() => {
-    load(Array.from(watchIds)).finally(() => setLoading(false));
-  }, [watchIds, load]);
+  // Re-query Supabase every time this tab is focused so hearts toggled on
+  // other tabs (Marketplace, vehicle detail) show up immediately.
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      await Promise.all([reloadIds(), loadFromDb()]);
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [loadFromDb, reloadIds]));
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await reload();
-    // reload triggers watchIds change → effect re-fetches.
+    await Promise.all([reloadIds(), loadFromDb()]);
     setRefreshing(false);
   };
 
   const onToggle = async (vehicleId: string) => {
     const result = await toggleWatch(vehicleId);
-    if (result === "error") Alert.alert("Couldn't update watchlist");
+    if (result === "error") { Alert.alert("Couldn't update watchlist"); return; }
+    // After unwatch, refresh to drop the card from the list.
+    await loadFromDb();
   };
 
   if (!user) {
@@ -116,7 +150,7 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
         renderItem={({ item }) => (
           <VehicleCard
             vehicle={item}
-            isWatching={watchIds.has(item.id)}
+            isWatching={true}
             onToggleWatch={() => onToggle(item.id)}
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
             onPrimaryAction={() => {
