@@ -21,11 +21,22 @@ import { useTranslation } from "../lib/i18n";
 import { useAuth } from "../lib/auth";
 import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow } from "../lib/types";
 
+// PostgREST returns the embedded `auctions` row as an OBJECT (not an
+// array) when the parent FK is unique, which auctions.vehicle_id is. We
+// accept both shapes and normalize once when reading from the response —
+// otherwise `vehicle.auctions?.[0]` silently resolves to undefined and
+// the sticky Bid Now / Buy Now CTA never renders.
 type VehicleFull = VehicleRow & {
   vehicle_photos: VehiclePhotoRow[];
   vehicle_damages: VehicleDamageRow[];
-  auctions: AuctionRow[];
+  auctions: AuctionRow[] | AuctionRow | null;
 };
+
+function pickAuction(a: VehicleFull["auctions"]): AuctionRow | null {
+  if (!a) return null;
+  if (Array.isArray(a)) return a[0] ?? null;
+  return a;
+}
 
 const SEVERITY_COLOR: Record<string, { bg: string; fg: string; border: string }> = {
   cosmetic: { bg: "#ecfdf3", fg: theme.colors.success, border: "#a6f4c5" },
@@ -45,13 +56,15 @@ export function VehicleDetailScreen({
   const { format } = useCurrency();
   const { user } = useAuth();
   const [vehicle, setVehicle] = useState<VehicleFull | null>(null);
+  const [auction, setAuction] = useState<AuctionRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [shipping, setShipping] = useState<ShippingChoice>({ kind: "port", port: "Hamburg" });
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      // Load the vehicle + its embedded photos/damages in one trip…
+      const { data, error } = await supabase
         .from("vehicles")
         .select(`
           *,
@@ -61,7 +74,29 @@ export function VehicleDetailScreen({
         `)
         .eq("id", id)
         .single();
-      setVehicle((data as VehicleFull) ?? null);
+
+      const v = (data as VehicleFull) ?? null;
+      setVehicle(v);
+
+      // …then fall back to a direct auctions query if the embed didn't
+      // return one. Belt-and-braces because PostgREST sometimes returns
+      // the embed as an empty object when RLS hides the row.
+      let a = pickAuction(v?.auctions);
+      if (!a && !error) {
+        const { data: ar } = await supabase
+          .from("auctions")
+          .select("id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id")
+          .eq("vehicle_id", id)
+          .order("end_time", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (ar) a = ar as AuctionRow;
+      }
+      setAuction(a);
+      // Diagnostic — surfaces in Metro logs so we can confirm the auction
+      // payload reached the screen. Remove once the sticky CTA is stable.
+      // eslint-disable-next-line no-console
+      console.log("[VehicleDetail] AUCTION DATA:", JSON.stringify(a));
       setLoading(false);
     })();
   }, [id]);
@@ -70,7 +105,6 @@ export function VehicleDetailScreen({
     () => (vehicle?.vehicle_photos ?? []).slice().sort((a, b) => a.sort_order - b.sort_order),
     [vehicle],
   );
-  const auction = vehicle?.auctions?.[0];
   // Compute live/scheduled/ended from end_time + status so the sticky CTA
   // and badges stay accurate when the DB row hasn't flipped to "ended" yet.
   const live      = isAuctionLive(auction);
@@ -93,8 +127,8 @@ export function VehicleDetailScreen({
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
   const userWonThis = !!(ended && user && auction && auction.winner_id === user.id);
 
-  if (loading) return <Spinner label="Loading vehicle…" />;
-  if (!vehicle) return <View style={styles.center}><Text>Vehicle not found.</Text></View>;
+  if (loading) return <Spinner label={t("vehicle.loading")} />;
+  if (!vehicle) return <View style={styles.center}><Text>{t("vehicle.notFound")}</Text></View>;
 
   const width = Dimensions.get("window").width;
   const goAuction = () => auction && navigation.navigate("Auction", { id: auction.id });
@@ -158,28 +192,32 @@ export function VehicleDetailScreen({
           {/* Specs */}
           <Section title={t("vehicle.specs")} icon="information-circle-outline">
             <View style={styles.specGrid}>
-              <Spec icon="barcode-outline"        label="VIN"          value={vehicle.vin} />
-              <Spec icon="speedometer-outline"    label="Mileage"      value={formatKm(vehicle.mileage_km)} />
-              <Spec icon="flash-outline"          label="Fuel"         value={vehicle.fuel_type} capitalize />
-              <Spec icon="cog-outline"            label="Transmission" value={vehicle.transmission} capitalize />
-              <Spec icon="car-sport-outline"      label="Body"         value={vehicle.body_type ?? "—"} />
-              <Spec icon="color-palette-outline"  label="Exterior"     value={vehicle.exterior_color ?? "—"} />
-              <Spec icon="color-fill-outline"     label="Interior"     value={vehicle.interior_color ?? "—"} />
-              <Spec icon="pricetag-outline"       label="Listed price" value={format(vehicle.listed_price_eur)} />
+              <Spec icon="barcode-outline"        label={t("vehicle.specVin")}          value={vehicle.vin} />
+              <Spec icon="speedometer-outline"    label={t("vehicle.specMileage")}      value={formatKm(vehicle.mileage_km)} />
+              <Spec icon="flash-outline"          label={t("vehicle.specFuel")}         value={vehicle.fuel_type} capitalize />
+              <Spec icon="cog-outline"            label={t("vehicle.specTransmission")} value={vehicle.transmission} capitalize />
+              <Spec icon="car-sport-outline"      label={t("vehicle.specBody")}         value={vehicle.body_type ?? "—"} />
+              <Spec icon="color-palette-outline"  label={t("vehicle.specExterior")}     value={vehicle.exterior_color ?? "—"} />
+              <Spec icon="color-fill-outline"     label={t("vehicle.specInterior")}     value={vehicle.interior_color ?? "—"} />
+              <Spec icon="pricetag-outline"       label={t("vehicle.specListedPrice")}  value={format(vehicle.listed_price_eur)} />
             </View>
           </Section>
 
           {/* Shipping options selector */}
-          <Section title="Shipping & Delivery" icon="boat-outline">
-            <Text style={styles.shipSub}>Choose how the vehicle reaches you. Prices reflect the selected currency.</Text>
+          <Section title={t("vehicle.shipping")} icon="boat-outline">
+            <Text style={styles.shipSub}>{t("vehicle.shippingChoose")}</Text>
             <ShippingOptions value={shipping} onChange={setShipping} />
 
             {/* Live total estimate */}
             <View style={styles.totalCard}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.totalLabel}>Total estimate</Text>
+                <Text style={styles.totalLabel}>{t("vehicle.totalEstimate")}</Text>
                 <Text style={styles.totalBreakdown}>
-                  {format(priceEur)} vehicle + {format(shippingEur)} {describeShipping(shipping)}
+                  {t("vehicle.totalBreakdown", {
+                    price: format(priceEur),
+                    shipping: format(shippingEur),
+                    method: describeShipping(shipping),
+                  })}
                 </Text>
               </View>
               <Text style={styles.totalAmount}>{format(totalEur)}</Text>
@@ -240,7 +278,10 @@ export function VehicleDetailScreen({
         <View style={styles.stickyBar}>
           <View style={styles.stickyTop}>
             <Text style={styles.stickyLabel}>
-              {live ? t("auction.currentBid") : scheduled ? "Starting price" : ended ? "Final price" : "Listed price"}
+              {live ? t("auction.currentBid")
+                : scheduled ? t("vehicle.startingPrice")
+                : ended ? t("vehicle.finalPrice")
+                : t("vehicle.listedPrice")}
             </Text>
             <Text style={styles.stickyPrice}>{format(priceEur)}</Text>
           </View>
@@ -259,7 +300,7 @@ export function VehicleDetailScreen({
                   style={styles.bidNowBtn}
                 >
                   <Ionicons name="receipt-outline" size={18} color={theme.colors.white} />
-                  <Text style={styles.bidNowText}>View Invoice</Text>
+                  <Text style={styles.bidNowText}>{t("vehicle.viewInvoice")}</Text>
                 </LinearGradient>
               </Pressable>
             ) : (
@@ -271,7 +312,7 @@ export function VehicleDetailScreen({
                   >
                     <Ionicons name="flash" size={16} color={theme.colors.brand} />
                     <Text style={styles.buyNowText} numberOfLines={1}>
-                      Buy Now {format(auction?.buy_now_price_eur ?? 0)}
+                      {t("vehicle.buyNowPrice", { price: format(auction?.buy_now_price_eur ?? 0) })}
                     </Text>
                   </Pressable>
                 )}
@@ -290,7 +331,10 @@ export function VehicleDetailScreen({
                       color={theme.colors.white}
                     />
                     <Text style={styles.bidNowText}>
-                      {live ? "Bid Now" : scheduled ? "View Auction" : ended ? "View Result" : "View Auction"}
+                      {live ? t("vehicle.bidNow")
+                        : scheduled ? t("vehicle.viewAuction")
+                        : ended ? t("vehicle.viewResult")
+                        : t("vehicle.viewAuction")}
                     </Text>
                   </LinearGradient>
                 </Pressable>

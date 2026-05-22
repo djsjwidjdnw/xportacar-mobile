@@ -106,7 +106,7 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
 
   const onToggle = async (vehicleId: string) => {
     const result = await toggleWatch(vehicleId);
-    if (result === "error") { Alert.alert("Couldn't update watchlist"); return; }
+    if (result === "error") { Alert.alert(t("watchlist.cantUpdate")); return; }
     // After unwatch, refresh to drop the card from the list.
     await loadFromDb();
   };
@@ -116,23 +116,23 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <EmptyState
           icon="lock-closed-outline"
-          title="Sign in to save vehicles"
+          title={t("watchlist.signInTitle")}
           body={t("watchlist.signin")}
         />
       </View>
     );
   }
-  if (loading) return <Spinner label="Loading watchlist…" />;
+  if (loading) return <Spinner label={t("watchlist.loading")} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Text style={styles.header}>{t("watchlist.title")}</Text>
       {items.length > 0 && (
-        <Text style={styles.count}>{items.length} saved</Text>
+        <Text style={styles.count}>{t("watchlist.savedCount", { count: items.length })}</Text>
       )}
       {error && (
         <View style={styles.errBox}>
-          <Text style={styles.errText}>Couldn&apos;t load watchlist: {error}</Text>
+          <Text style={styles.errText}>{t("watchlist.errLoad", { error })}</Text>
         </View>
       )}
       <FlatList
@@ -165,8 +165,8 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
         ListEmptyComponent={
           <EmptyState
             icon="heart-outline"
-            title="Your watchlist is empty"
-            body="No vehicles saved yet. Browse the marketplace to find your next purchase."
+            title={t("watchlist.emptyTitle")}
+            body={t("watchlist.emptyBody")}
           />
         }
       />

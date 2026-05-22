@@ -135,10 +135,10 @@ export function AuctionScreen({
   }, [urgentCountdown, pulse]);
 
   const placeBid = async () => {
-    if (!user) { Alert.alert("Sign in required", "Sign in to place a bid."); return; }
-    if (amount < minNext) { Alert.alert("Bid too low", `Min next bid is ${format(minNext)}.`); return; }
+    if (!user) { Alert.alert(t("auction.signInRequired"), t("auction.signInToBid")); return; }
+    if (amount < minNext) { Alert.alert(t("auction.bidTooLow"), t("auction.bidTooLowBody", { price: format(minNext) })); return; }
     if (proxyOn && proxyMax < amount) {
-      Alert.alert("Proxy too low", "Maximum bid must be at least your current bid amount.");
+      Alert.alert(t("auction.proxyTooLow"), t("auction.proxyTooLowBody"));
       return;
     }
     setSubmitting(true);
@@ -150,11 +150,11 @@ export function AuctionScreen({
       proxy_max_eur: proxyOn ? proxyMax : null,
     });
     setSubmitting(false);
-    if (error) { Alert.alert("Bid failed", error.message); return; }
+    if (error) { Alert.alert(t("auction.bidFailed"), error.message); return; }
     if (proxyOn) {
       Alert.alert(
-        "Proxy bid placed",
-        `We'll auto-bid on your behalf in €500 increments up to ${format(proxyMax)}.`,
+        t("auction.proxyPlacedTitle"),
+        t("auction.proxyPlacedBody", { max: format(proxyMax) }),
       );
     }
     await refresh();
@@ -168,12 +168,12 @@ export function AuctionScreen({
     });
     setSubmitting(false);
     setBuyOpen(false);
-    if (error) { Alert.alert("Couldn't complete purchase", error.message); return; }
+    if (error) { Alert.alert(t("auction.purchaseFailed"), error.message); return; }
     navigation.navigate("AuctionWon", { id });
   };
 
-  if (loading) return <Spinner label="Loading auction…" />;
-  if (!auction) return <View style={styles.center}><Text>Auction not found.</Text></View>;
+  if (loading) return <Spinner label={t("auction.loading")} />;
+  if (!auction) return <View style={styles.center}><Text>{t("auction.notFound")}</Text></View>;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -187,7 +187,7 @@ export function AuctionScreen({
               color={isWinning ? theme.colors.success : theme.colors.error}
             />
             <Text style={[styles.statusText, { color: isWinning ? theme.colors.success : theme.colors.error }]}>
-              {isWinning ? "You're winning!" : "You've been outbid"}
+              {isWinning ? t("auction.winning") : t("auction.outbid")}
             </Text>
           </View>
         )}
@@ -254,7 +254,7 @@ export function AuctionScreen({
               <View style={styles.proxyHeader}>
                 <View style={styles.proxyHeaderLeft}>
                   <Ionicons name="trending-up" size={16} color={theme.colors.brand} />
-                  <Text style={styles.proxyTitle}>Set maximum bid</Text>
+                  <Text style={styles.proxyTitle}>{t("auction.setMaxBid")}</Text>
                 </View>
                 <Switch
                   value={proxyOn}
@@ -290,8 +290,7 @@ export function AuctionScreen({
                     </Pressable>
                   </View>
                   <Text style={styles.proxyHint}>
-                    We&apos;ll bid on your behalf in €500 increments up to{" "}
-                    <Text style={styles.proxyHintStrong}>{format(proxyMax)}</Text>. Other bidders won&apos;t see your limit.
+                    {t("auction.proxyHint", { max: format(proxyMax) })}
                   </Text>
                 </>
               )}
@@ -340,10 +339,10 @@ export function AuctionScreen({
                   </View>
                   <View>
                     <Text style={styles.bidName}>
-                      {b.bidder_id === user?.id ? "You" : `Bidder #${b.bidder_id.slice(0, 6)}`}
-                      {b.is_proxy && <Text style={styles.proxyTag}>  · proxy</Text>}
+                      {b.bidder_id === user?.id ? t("auction.youLabel") : t("auction.bidderLabel", { id: b.bidder_id.slice(0, 6) })}
+                      {b.is_proxy && <Text style={styles.proxyTag}>{t("auction.proxyTag")}</Text>}
                     </Text>
-                    {i === 0 && <Text style={styles.topTag}>Top bid</Text>}
+                    {i === 0 && <Text style={styles.topTag}>{t("auction.topBid")}</Text>}
                   </View>
                 </View>
                 <Text style={styles.bidAmount}>{format(b.amount_eur)}</Text>
@@ -359,12 +358,13 @@ export function AuctionScreen({
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{t("auction.buyNowQ")}</Text>
             <Text style={styles.modalBody}>
-              You&apos;ll purchase {auction.vehicle.year} {auction.vehicle.make} {auction.vehicle.model} for{" "}
-              <Text style={{ fontWeight: "800" }}>{format(auction.buy_now_price_eur)}</Text>.
-              The auction closes immediately.
+              {t("auction.buyNowBody", {
+                vehicle: `${auction.vehicle.year} ${auction.vehicle.make} ${auction.vehicle.model}`,
+                price: format(auction.buy_now_price_eur),
+              })}
             </Text>
             <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
-              <Button label="Cancel" variant="outline" onPress={() => setBuyOpen(false)} style={{ flex: 1 }} />
+              <Button label={t("auction.cancel")} variant="outline" onPress={() => setBuyOpen(false)} style={{ flex: 1 }} />
               <Button label={t("auction.buyNowConfirm")} onPress={buyNow} loading={submitting} style={{ flex: 1 }} />
             </View>
           </View>

@@ -63,11 +63,11 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <EmptyState icon="lock-closed-outline" title="Sign in to track your bids" body="Create an account or log in to see auctions you're bidding on." />
+        <EmptyState icon="lock-closed-outline" title={t("bids.signInTitle")} body={t("bids.signInBody")} />
       </View>
     );
   }
-  if (loading) return <Spinner label="Loading your bids…" />;
+  if (loading) return <Spinner label={t("bids.loading")} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -136,7 +136,7 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
                     style={styles.invoiceBtn}
                   >
                     <Ionicons name="receipt-outline" size={16} color={theme.colors.white} />
-                    <Text style={styles.invoiceText}>View Invoice & Payment</Text>
+                    <Text style={styles.invoiceText}>{t("bids.viewInvoice")}</Text>
                     <Ionicons name="arrow-forward" size={14} color={theme.colors.white} />
                   </LinearGradient>
                 </Pressable>
@@ -147,8 +147,8 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
         ListEmptyComponent={
           <EmptyState
             icon="flash-outline"
-            title="No bids yet"
-            body="You haven't placed any bids yet. Explore live auctions to get started."
+            title={t("bids.emptyTitle")}
+            body={t("bids.emptyBody")}
           />
         }
       />
