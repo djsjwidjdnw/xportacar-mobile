@@ -9,14 +9,34 @@ import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
 import { LiveAuctionCard } from "../components/LiveAuctionCard";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
+import {
+  FilterBar, EMPTY_FILTERS, type VehicleFilters,
+} from "../components/FilterBar";
 import { supabase } from "../lib/supabase";
-import { theme } from "../lib/theme";
+import { theme, isAuctionLive } from "../lib/theme";
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 type Filter = "all" | "live";
+
+// Resolve the displayable price for a vehicle — used by both filter and sort.
+function priceFor(v: VehicleListItem): number {
+  if (v.auction?.current_bid_eur) return v.auction.current_bid_eur;
+  if (v.auction?.starting_price_eur) return v.auction.starting_price_eur;
+  return v.listed_price_eur ?? 0;
+}
+
+function priceInBand(price: number, band: VehicleFilters["priceBand"]): boolean {
+  switch (band) {
+    case "all":     return true;
+    case "u50":     return price < 50_000;
+    case "50-100":  return price >= 50_000 && price < 100_000;
+    case "100-150": return price >= 100_000 && price < 150_000;
+    case "150p":    return price >= 150_000;
+  }
+}
 
 export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
@@ -26,7 +46,8 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [tab, setTab] = useState<Filter>("all");
+  const [filters, setFilters] = useState<VehicleFilters>(EMPTY_FILTERS);
 
   const fetchVehicles = useCallback(async () => {
     const { data, error } = await supabase
@@ -39,8 +60,6 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       .in("status", ["listed", "in_auction"])
       .order("updated_at", { ascending: false });
     if (error) { setItems([]); return; }
-    // PostgREST returns the auctions embed as a single object when the FK
-    // is unique (auctions.vehicle_id is). Handle array OR object shape.
     type Row = VehicleRow & {
       vehicle_photos?: { url: string; sort_order: number }[];
       auctions?: AuctionRow[] | AuctionRow | null;
@@ -57,14 +76,6 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       const { vehicle_photos: _v, auctions: _a, ...rest } = row;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
-    list.sort((a, b) => {
-      const ae = a.auction?.end_time;
-      const be = b.auction?.end_time;
-      if (ae && be) return new Date(ae).getTime() - new Date(be).getTime();
-      if (ae) return -1;
-      if (be) return 1;
-      return 0;
-    });
     setItems(list);
   }, []);
 
@@ -76,20 +87,63 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
     setRefreshing(false);
   };
 
-  // Apply filter + search.
+  // Build the unique-makes list from the loaded dataset — drives the
+  // Make filter dropdown without an extra query.
+  const availableMakes = useMemo(
+    () => Array.from(new Set(items.map((v) => v.make))).sort(),
+    [items],
+  );
+
+  // Apply tab + free-text + filter+sort.
   const liveItems = useMemo(
-    () => items.filter((v) => v.auction?.status === "active" && v.auction.end_time && new Date(v.auction.end_time).getTime() > Date.now()),
+    () => items.filter((v) => isAuctionLive(v.auction)),
     [items],
   );
 
   const filtered = useMemo(() => {
-    const base = filter === "live" ? liveItems : items;
+    const base = tab === "live" ? liveItems : items;
     const q = query.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((v) =>
-      `${v.year} ${v.make} ${v.model} ${v.vin} ${v.exterior_color ?? ""}`.toLowerCase().includes(q),
-    );
-  }, [filter, items, liveItems, query]);
+    const result = base.filter((v) => {
+      if (q && !`${v.year} ${v.make} ${v.model} ${v.vin} ${v.exterior_color ?? ""}`.toLowerCase().includes(q)) {
+        return false;
+      }
+      if (filters.make && v.make !== filters.make) return false;
+      if (filters.yearMin != null && v.year < filters.yearMin) return false;
+      if (filters.yearMax != null && v.year > filters.yearMax) return false;
+      if (!priceInBand(priceFor(v), filters.priceBand)) return false;
+      if (filters.fuel && v.fuel_type !== filters.fuel) return false;
+      if (filters.transmission && v.transmission !== filters.transmission) return false;
+      return true;
+    });
+
+    // Sort
+    const sorted = [...result];
+    switch (filters.sort) {
+      case "ending_soon":
+        sorted.sort((a, b) => {
+          const ae = a.auction?.end_time, be = b.auction?.end_time;
+          if (ae && be) return new Date(ae).getTime() - new Date(be).getTime();
+          if (ae) return -1;
+          if (be) return 1;
+          return 0;
+        });
+        break;
+      case "newest":
+        // No created_at on type — use year desc then VIN as a stable tiebreaker.
+        sorted.sort((a, b) => b.year - a.year || (a.vin ?? "").localeCompare(b.vin ?? ""));
+        break;
+      case "price_asc":
+        sorted.sort((a, b) => priceFor(a) - priceFor(b));
+        break;
+      case "price_desc":
+        sorted.sort((a, b) => priceFor(b) - priceFor(a));
+        break;
+      case "mileage_asc":
+        sorted.sort((a, b) => (a.mileage_km ?? 0) - (b.mileage_km ?? 0));
+        break;
+    }
+    return sorted;
+  }, [tab, items, liveItems, query, filters]);
 
   const onToggle = async (vehicleId: string) => {
     if (!user) { Alert.alert("Sign in required", t("watchlist.signin")); return; }
@@ -144,19 +198,25 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
               />
             </View>
 
-            {/* All / Live segmented pills — single source of truth for which
-                set you're browsing, replaces the old separate "Live" tab. */}
+            {/* Filters + sort */}
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              availableMakes={availableMakes}
+            />
+
+            {/* All / Live segmented pills */}
             <View style={styles.segWrap}>
               <SegPill
-                active={filter === "all"}
-                onPress={() => setFilter("all")}
+                active={tab === "all"}
+                onPress={() => setTab("all")}
                 icon="grid-outline"
                 label={t("marketplace.allTab")}
                 count={items.length}
               />
               <SegPill
-                active={filter === "live"}
-                onPress={() => setFilter("live")}
+                active={tab === "live"}
+                onPress={() => setTab("live")}
                 icon="flash"
                 label={t("marketplace.liveTab")}
                 count={liveItems.length}
@@ -166,7 +226,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
 
             <View style={styles.resultsRow}>
               <Text style={styles.resultsLabel}>
-                {filter === "live"
+                {tab === "live"
                   ? t("marketplace.liveCount", { count: filtered.length })
                   : t("marketplace.results", { count: filtered.length, total: items.length })}
               </Text>
@@ -174,9 +234,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           </View>
         }
         renderItem={({ item }) =>
-          // When the "Live Now" filter is on, switch to the dedicated card
-          // with a ticking HH:MM:SS countdown banner so urgency is obvious.
-          filter === "live" ? (
+          tab === "live" ? (
             <LiveAuctionCard
               vehicle={item}
               isWatching={watchIds.has(item.id)}
@@ -191,8 +249,8 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
               onToggleWatch={user ? () => onToggle(item.id) : undefined}
               onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
               onPrimaryAction={() => {
-                if (item.auction?.status === "active") {
-                  navigation.navigate("Auction", { id: item.auction.id });
+                if (isAuctionLive(item.auction)) {
+                  navigation.navigate("Auction", { id: item.auction!.id });
                 } else {
                   navigation.navigate("VehicleDetail", { id: item.id });
                 }
@@ -209,7 +267,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           />
         }
         ListEmptyComponent={
-          filter === "live" ? (
+          tab === "live" ? (
             <EmptyState
               icon="flash-outline"
               title={t("marketplace.noLiveTitle")}
@@ -275,12 +333,12 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center",
     height: 48, borderRadius: 12, borderWidth: 1,
     borderColor: theme.colors.border, paddingHorizontal: 14,
-    backgroundColor: theme.colors.white, marginBottom: 12,
+    backgroundColor: theme.colors.white, marginBottom: 8,
   },
   search: { flex: 1, fontSize: 14, color: theme.colors.text },
 
   // Segmented filter
-  segWrap: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  segWrap: { flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 12 },
   seg: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     height: 42, borderRadius: theme.radius.full, paddingHorizontal: 12,

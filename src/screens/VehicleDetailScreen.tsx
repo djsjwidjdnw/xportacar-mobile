@@ -12,9 +12,13 @@ import {
   ShippingOptions, type ShippingChoice, describeShipping, getShippingPriceEur,
 } from "../components/ShippingOptions";
 import { supabase } from "../lib/supabase";
-import { theme, formatKm, formatRemaining, formatScheduledStartLong } from "../lib/theme";
+import {
+  theme, formatKm, formatRemaining, formatScheduledStartLong,
+  isAuctionLive, isAuctionEnded, isAuctionScheduled,
+} from "../lib/theme";
 import { useCurrency } from "../lib/currency";
 import { useTranslation } from "../lib/i18n";
+import { useAuth } from "../lib/auth";
 import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow } from "../lib/types";
 
 type VehicleFull = VehicleRow & {
@@ -39,6 +43,7 @@ export function VehicleDetailScreen({
   const { id } = route.params;
   const { t } = useTranslation();
   const { format } = useCurrency();
+  const { user } = useAuth();
   const [vehicle, setVehicle] = useState<VehicleFull | null>(null);
   const [loading, setLoading] = useState(true);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -66,9 +71,11 @@ export function VehicleDetailScreen({
     [vehicle],
   );
   const auction = vehicle?.auctions?.[0];
-  const live      = auction?.status === "active";
-  const scheduled = auction?.status === "scheduled";
-  const ended     = auction?.status === "ended" || auction?.status === "sold";
+  // Compute live/scheduled/ended from end_time + status so the sticky CTA
+  // and badges stay accurate when the DB row hasn't flipped to "ended" yet.
+  const live      = isAuctionLive(auction);
+  const scheduled = isAuctionScheduled(auction);
+  const ended     = isAuctionEnded(auction);
 
   // Headline price for the sticky bar and "total estimate" — uses raw EUR
   // since formatEur is replaced with the currency-aware format() helper.
@@ -84,6 +91,7 @@ export function VehicleDetailScreen({
   const totalEur = priceEur + shippingEur;
 
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
+  const userWonThis = !!(ended && user && auction && auction.winner_id === user.id);
 
   if (loading) return <Spinner label="Loading vehicle…" />;
   if (!vehicle) return <View style={styles.center}><Text>Vehicle not found.</Text></View>;
@@ -91,6 +99,7 @@ export function VehicleDetailScreen({
   const width = Dimensions.get("window").width;
   const goAuction = () => auction && navigation.navigate("Auction", { id: auction.id });
   const goBuyNow  = () => auction && navigation.navigate("Auction", { id: auction.id, buyNow: true });
+  const goInvoice = () => auction && navigation.navigate("AuctionWon", { id: auction.id });
   const stickyVisible = !!auction;
 
   return (
@@ -237,36 +246,56 @@ export function VehicleDetailScreen({
           </View>
 
           <View style={styles.stickyCtas}>
-            {buyNowAvailable && (
+            {/* When the user is the winner of an ended auction, surface a
+                View Invoice CTA so they can find the payment screen. */}
+            {userWonThis ? (
               <Pressable
-                onPress={goBuyNow}
-                style={({ pressed }) => [styles.buyNowBtn, pressed && { opacity: 0.92 }]}
+                onPress={goInvoice}
+                style={({ pressed }) => [styles.bidNowShadow, pressed && { opacity: 0.92 }]}
               >
-                <Ionicons name="flash" size={16} color={theme.colors.brand} />
-                <Text style={styles.buyNowText}>
-                  Buy Now {format(auction?.buy_now_price_eur ?? 0)}
-                </Text>
+                <LinearGradient
+                  colors={[theme.colors.success, "#027A48"]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={styles.bidNowBtn}
+                >
+                  <Ionicons name="receipt-outline" size={18} color={theme.colors.white} />
+                  <Text style={styles.bidNowText}>View Invoice</Text>
+                </LinearGradient>
               </Pressable>
+            ) : (
+              <>
+                {buyNowAvailable && (
+                  <Pressable
+                    onPress={goBuyNow}
+                    style={({ pressed }) => [styles.buyNowBtn, pressed && { opacity: 0.92 }]}
+                  >
+                    <Ionicons name="flash" size={16} color={theme.colors.brand} />
+                    <Text style={styles.buyNowText} numberOfLines={1}>
+                      Buy Now {format(auction?.buy_now_price_eur ?? 0)}
+                    </Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  onPress={goAuction}
+                  style={({ pressed }) => [styles.bidNowShadow, pressed && { opacity: 0.92 }]}
+                >
+                  <LinearGradient
+                    colors={live ? [theme.colors.brand, theme.colors.brandDark] : [theme.colors.textMuted, theme.colors.textMuted]}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    style={styles.bidNowBtn}
+                  >
+                    <Ionicons
+                      name={live ? "hammer-outline" : scheduled ? "eye-outline" : "albums-outline"}
+                      size={18}
+                      color={theme.colors.white}
+                    />
+                    <Text style={styles.bidNowText}>
+                      {live ? "Bid Now" : scheduled ? "View Auction" : ended ? "View Result" : "View Auction"}
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
+              </>
             )}
-            <Pressable
-              onPress={goAuction}
-              style={({ pressed }) => [styles.bidNowShadow, pressed && { opacity: 0.92 }]}
-            >
-              <LinearGradient
-                colors={[theme.colors.brand, theme.colors.brandDark]}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={styles.bidNowBtn}
-              >
-                <Ionicons
-                  name={live ? "hammer-outline" : scheduled ? "eye-outline" : "albums-outline"}
-                  size={18}
-                  color={theme.colors.white}
-                />
-                <Text style={styles.bidNowText}>
-                  {live ? "Bid Now" : scheduled ? "View Auction" : "View Auction"}
-                </Text>
-              </LinearGradient>
-            </Pressable>
           </View>
         </View>
       )}

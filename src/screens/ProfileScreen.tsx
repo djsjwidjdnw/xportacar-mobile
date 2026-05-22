@@ -11,7 +11,7 @@ import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTranslation, SUPPORTED, type Locale } from "../lib/i18n";
-import { theme, formatEur, formatMonthYear } from "../lib/theme";
+import { theme, formatEur, formatMonthYear, isAuctionEnded, isAuctionLive } from "../lib/theme";
 import type { ProfileRow } from "../lib/types";
 
 interface ExtendedProfile extends ProfileRow {
@@ -27,6 +27,7 @@ interface RecentBid {
     id: string;
     current_bid_eur: number | null;
     status: string;
+    end_time: string;
     winner_id: string | null;
     vehicle: { id: string; year: number; make: string; model: string } | null;
   } | null;
@@ -62,7 +63,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
           .select(`
             id, amount_eur, created_at,
             auction:auctions!auction_id (
-              id, current_bid_eur, status, winner_id,
+              id, current_bid_eur, status, end_time, winner_id,
               vehicle:vehicles!vehicle_id (id, year, make, model)
             )
           `)
@@ -121,7 +122,11 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
   }
   const grouped = Array.from(byAuction.values());
   const recent = grouped.slice(0, 5);
-  const won    = grouped.filter((r) => r.auction?.status === "sold" && r.auction?.winner_id === user.id);
+  // Treat any ended auction the user won as a win — don't rely on the
+  // DB status flipping to "sold" since the time-based flip lags.
+  const won = grouped.filter(
+    (r) => r.auction && isAuctionEnded(r.auction) && r.auction.winner_id === user.id,
+  );
 
   const kycTag = profile?.kyc_status === "verified"
     ? { bg: theme.colors.successBg, fg: theme.colors.success, l: t("profile.kycOK"),     icon: "shield-checkmark" as const }
@@ -215,19 +220,21 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         >
           {recent.map((b) => {
             const a = b.auction!;
-            const winning = b.amount_eur >= (a.current_bid_eur ?? 0);
-            const ended   = a.status !== "active";
-            const tag = ended
-              ? (a.winner_id === user.id
-                ? { l: t("bids.won"),    bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
-                : { l: t("bids.ended"),  bg: theme.colors.bgAlt,     fg: theme.colors.textMuted, icon: "time-outline" as const })
-              : winning
+            const ended = isAuctionEnded(a);
+            const live  = isAuctionLive(a);
+            const isWinner = ended && a.winner_id === user.id;
+            const winning  = !ended && b.amount_eur >= (a.current_bid_eur ?? 0);
+            const tag = isWinner
+              ? { l: t("bids.won"),    bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
+              : ended
+              ? { l: t("bids.ended"),  bg: theme.colors.errorBg,   fg: theme.colors.error, icon: "lock-closed" as const }
+              : live && winning
               ? { l: t("bids.winning"), bg: theme.colors.successBg, fg: theme.colors.success, icon: "checkmark-circle" as const }
               : { l: t("bids.outbid"),  bg: theme.colors.warningBg, fg: theme.colors.warning, icon: "alert-circle" as const };
             return (
               <Pressable
                 key={b.id}
-                onPress={() => navigation.navigate("Auction", { id: a.id })}
+                onPress={() => navigation.navigate(isWinner ? "AuctionWon" : "Auction", { id: a.id })}
                 style={({ pressed }) => [styles.bidCard, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}
               >
                 <View style={[styles.bidCardTag, { backgroundColor: tag.bg }]}>
@@ -248,8 +255,10 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
                   </View>
                 </View>
                 <View style={styles.bidCardFoot}>
-                  <Text style={styles.bidCardFootText}>{t("profile.viewAuction")}</Text>
-                  <Ionicons name="arrow-forward" size={12} color={theme.colors.brand} />
+                  <Text style={styles.bidCardFootText}>
+                    {isWinner ? "View Invoice" : t("profile.viewAuction")}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={12} color={isWinner ? theme.colors.success : theme.colors.brand} />
                 </View>
               </Pressable>
             );
@@ -257,7 +266,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         </ScrollView>
       )}
 
-      {/* Won auctions */}
+      {/* Won auctions — tapping any row jumps straight to the invoice */}
       {won.length > 0 && (
         <>
           <SectionHeader icon="trophy-outline" label={t("profile.wonAuctions")} right={`${won.length}`} />
@@ -265,7 +274,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
             {won.map((b, i) => (
               <Pressable
                 key={b.id}
-                onPress={() => b.auction && navigation.navigate("Auction", { id: b.auction.id })}
+                onPress={() => b.auction && navigation.navigate("AuctionWon", { id: b.auction.id })}
                 style={({ pressed }) => [styles.bidRow, i === won.length - 1 && { borderBottomWidth: 0 }, pressed && { opacity: 0.95 }]}
               >
                 <View style={[styles.wonIconWrap]}>
@@ -277,7 +286,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
                   </Text>
                   <Text style={styles.bidSub}>{t("profile.wonAt", { price: formatEur(b.amount_eur) })}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.textLight} />
+                <Ionicons name="receipt-outline" size={16} color={theme.colors.success} />
               </Pressable>
             ))}
           </View>

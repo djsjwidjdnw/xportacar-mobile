@@ -4,7 +4,10 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
-import { theme, formatEur, formatCountdown, msRemaining } from "../lib/theme";
+import {
+  theme, formatEur, formatCountdown, msRemaining,
+  isAuctionLive, isAuctionEnded,
+} from "../lib/theme";
 import type { VehicleListItem } from "./VehicleCard";
 
 // Tick once per second so HH:MM:SS counts down in real-time. Each card
@@ -36,7 +39,8 @@ export function LiveAuctionCard({
 
   const ms = msRemaining(auction.end_time);
   const urgent = ms > 0 && ms < 3600_000; // last hour
-  const ended  = ms <= 0;
+  const ended  = isAuctionEnded(auction);
+  const live   = isAuctionLive(auction);
   const countdown = formatCountdown(auction.end_time);
   const currentBid = auction.current_bid_eur ?? auction.starting_price_eur;
 
@@ -67,10 +71,17 @@ export function LiveAuctionCard({
           contentFit="cover"
           transition={150}
         />
-        <View style={styles.liveBadge}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>LIVE</Text>
-        </View>
+        {ended ? (
+          <View style={[styles.statusBadge, styles.endedBadge]}>
+            <Ionicons name="lock-closed" size={11} color={theme.colors.white} />
+            <Text style={styles.statusText}>ENDED</Text>
+          </View>
+        ) : live ? (
+          <View style={[styles.statusBadge, styles.liveBadge]}>
+            <View style={styles.liveDot} />
+            <Text style={styles.statusText}>LIVE</Text>
+          </View>
+        ) : null}
         {onToggleWatch && (
           <Pressable
             onPress={(e) => { e.stopPropagation(); onToggleWatch(); }}
@@ -92,20 +103,21 @@ export function LiveAuctionCard({
         style={[
           styles.countdownBanner,
           urgent && styles.countdownUrgent,
+          ended && styles.countdownEnded,
           { transform: [{ scale: urgent ? pulse : 1 }] },
         ]}
       >
         <Ionicons
-          name="time"
+          name={ended ? "lock-closed" : "time"}
           size={18}
-          color={urgent ? theme.colors.white : theme.colors.text}
+          color={urgent || ended ? theme.colors.white : theme.colors.text}
         />
         <View style={{ flex: 1 }}>
-          <Text style={[styles.countdownLabel, urgent && styles.countdownLabelUrgent]}>
-            {ended ? "ENDED" : urgent ? "ENDING SOON" : "TIME LEFT"}
+          <Text style={[styles.countdownLabel, (urgent || ended) && styles.countdownLabelInverse]}>
+            {ended ? "AUCTION ENDED" : urgent ? "ENDING SOON" : "TIME LEFT"}
           </Text>
-          <Text style={[styles.countdownValue, urgent && styles.countdownValueUrgent]}>
-            {countdown}
+          <Text style={[styles.countdownValue, (urgent || ended) && styles.countdownValueInverse]}>
+            {ended ? "Closed" : countdown}
           </Text>
         </View>
       </Animated.View>
@@ -121,7 +133,7 @@ export function LiveAuctionCard({
           </Text>
         </View>
         <View style={{ alignItems: "flex-end" }}>
-          <Text style={styles.bidLabel}>Current bid</Text>
+          <Text style={styles.bidLabel}>{ended ? "Final bid" : "Current bid"}</Text>
           <Text style={styles.bidValue}>{formatEur(currentBid)}</Text>
           <Text style={styles.bidsCount}>
             {auction.bid_count} bid{auction.bid_count === 1 ? "" : "s"}
@@ -136,13 +148,19 @@ export function LiveAuctionCard({
         style={({ pressed }) => [pressed && { opacity: 0.92 }]}
       >
         <LinearGradient
-          colors={[theme.colors.brand, theme.colors.brandDark]}
+          colors={ended ? [theme.colors.bgAlt, theme.colors.bgAlt] : [theme.colors.brand, theme.colors.brandDark]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.bidBtn, ended && { opacity: 0.5 }]}
+          style={styles.bidBtn}
         >
-          <Ionicons name="hammer-outline" size={16} color={theme.colors.white} />
-          <Text style={styles.bidBtnText}>{ended ? "Auction ended" : "Bid Now"}</Text>
+          <Ionicons
+            name={ended ? "lock-closed-outline" : "hammer-outline"}
+            size={16}
+            color={ended ? theme.colors.textMuted : theme.colors.white}
+          />
+          <Text style={[styles.bidBtnText, ended && { color: theme.colors.textMuted }]}>
+            {ended ? "Auction ended" : "Bid Now"}
+          </Text>
           {!ended && <Ionicons name="arrow-forward" size={16} color={theme.colors.white} />}
         </LinearGradient>
       </Pressable>
@@ -169,13 +187,15 @@ const styles = StyleSheet.create({
   imageWrap: { height: 160, backgroundColor: theme.colors.bgAlt, position: "relative" },
   image:     { width: "100%", height: "100%" },
 
-  liveBadge: {
-    position: "absolute", top: 12, left: 12, backgroundColor: theme.colors.success,
+  statusBadge: {
+    position: "absolute", top: 12, left: 12,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
     flexDirection: "row", alignItems: "center", gap: 6,
   },
+  liveBadge:  { backgroundColor: theme.colors.success },
+  endedBadge: { backgroundColor: theme.colors.error },
   liveDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.white },
-  liveText: { color: theme.colors.white, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  statusText: { color: theme.colors.white, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
 
   heartBtn: {
     position: "absolute", top: 12, right: 12,
@@ -199,19 +219,23 @@ const styles = StyleSheet.create({
     borderTopColor: theme.colors.error,
     borderBottomColor: theme.colors.error,
   },
+  countdownEnded: {
+    backgroundColor: theme.colors.textMuted,
+    borderTopColor: theme.colors.textMuted,
+    borderBottomColor: theme.colors.textMuted,
+  },
   countdownLabel: {
     fontSize: 10, fontWeight: "800", letterSpacing: 1,
     color: theme.colors.textLight, textTransform: "uppercase",
   },
-  countdownLabelUrgent: { color: "rgba(255,255,255,0.9)" },
+  countdownLabelInverse: { color: "rgba(255,255,255,0.9)" },
   countdownValue: {
     fontSize: 28, fontWeight: "800", color: theme.colors.text,
     marginTop: 2,
-    // Use a tabular-numeric look so the digits don't shift width as they tick.
     fontVariant: ["tabular-nums"],
     letterSpacing: 0.5,
   },
-  countdownValueUrgent: { color: theme.colors.white },
+  countdownValueInverse: { color: theme.colors.white },
 
   // Info row
   infoRow: {

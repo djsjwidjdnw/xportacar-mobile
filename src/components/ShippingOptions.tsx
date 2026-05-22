@@ -11,7 +11,6 @@ export type ShippingChoice =
   | { kind: "door" }
   | { kind: "tuv" };
 
-// Cost in EUR for cards that have a single number; ranges resolve in the UI.
 export interface PortOption {
   port: string;
   country: string;
@@ -33,7 +32,7 @@ export function getShippingPriceEur(choice: ShippingChoice): number {
   switch (choice.kind) {
     case "warehouse": return 0;
     case "port":      return PORT_OPTIONS.find((p) => p.port === choice.port)?.priceEur ?? 0;
-    case "door":      return DOOR_RANGE_EUR.min; // use the low end for "total estimate"
+    case "door":      return DOOR_RANGE_EUR.min;
     case "tuv":       return TUV_PRICE_EUR;
   }
 }
@@ -55,7 +54,7 @@ export function ShippingOptions({
 }) {
   const { format } = useCurrency();
   const doorLabel = useMemo(
-    () => `${format(DOOR_RANGE_EUR.min)} – ${format(DOOR_RANGE_EUR.max)} estimated`,
+    () => `${format(DOOR_RANGE_EUR.min)} – ${format(DOOR_RANGE_EUR.max)}`,
     [format],
   );
 
@@ -90,11 +89,11 @@ export function ShippingOptions({
               <View style={[styles.radio, active && styles.radioActive]}>
                 {active && <View style={styles.radioInner} />}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.subTitle}>{p.port}, {p.country}</Text>
+              <View style={styles.subText}>
+                <Text style={styles.subTitle} numberOfLines={1}>{p.port}, {p.country}</Text>
                 <Text style={styles.subMeta}>{p.days} days</Text>
               </View>
-              <Text style={styles.subPrice}>{format(p.priceEur)}</Text>
+              <Text style={styles.subPrice} numberOfLines={1}>{format(p.priceEur)}</Text>
             </Pressable>
           );
         })}
@@ -105,8 +104,9 @@ export function ShippingOptions({
         onPress={() => onChange({ kind: "door" })}
         icon="home-outline"
         title="Door-to-Door Delivery"
-        subtitle="30–45 days · varies by destination"
-        priceLabel={doorLabel}
+        subtitle={`30–45 days · ${doorLabel} estimated`}
+        priceLabel="From"
+        priceValue={format(DOOR_RANGE_EUR.min)}
       />
 
       <Row
@@ -115,14 +115,15 @@ export function ShippingOptions({
         icon="document-text-outline"
         title="German TÜV / Papers Service"
         subtitle="Inspection for DE registration, CoC, customs paperwork"
-        priceLabel={`+ ${format(TUV_PRICE_EUR)}`}
+        priceLabel="+ Add"
+        priceValue={format(TUV_PRICE_EUR)}
       />
     </View>
   );
 }
 
 function Row({
-  active, onPress, icon, title, subtitle, priceLabel,
+  active, onPress, icon, title, subtitle, priceLabel, priceValue,
 }: {
   active: boolean;
   onPress: () => void;
@@ -130,6 +131,9 @@ function Row({
   title: string;
   subtitle: string;
   priceLabel: string;
+  // Optional secondary big-price line — when supplied, priceLabel
+  // becomes the small caption above the bold value.
+  priceValue?: string;
 }) {
   return (
     <Pressable
@@ -140,29 +144,54 @@ function Row({
         pressed && { opacity: 0.95 },
       ]}
     >
-      <View style={[styles.radio, active && styles.radioActive]}>
-        {active && <View style={styles.radioInner} />}
+      {/* Left: radio + icon (fixed width) */}
+      <View style={styles.leftBlock}>
+        <View style={[styles.radio, active && styles.radioActive]}>
+          {active && <View style={styles.radioInner} />}
+        </View>
+        <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+          <Ionicons name={icon} size={16} color={active ? theme.colors.white : theme.colors.brand} />
+        </View>
       </View>
-      <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
-        <Ionicons name={icon} size={16} color={active ? theme.colors.white : theme.colors.brand} />
+
+      {/* Middle: title + subtitle — flex:1 so it expands and wraps naturally */}
+      <View style={styles.textBlock}>
+        <Text style={styles.title} numberOfLines={2}>{title}</Text>
+        <Text style={styles.subtitle} numberOfLines={2}>{subtitle}</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
+
+      {/* Right: price column (fixed-ish width — anchored to right edge) */}
+      <View style={styles.priceBlock}>
+        {priceValue ? (
+          <>
+            <Text style={styles.priceCaption} numberOfLines={1}>{priceLabel}</Text>
+            <Text style={styles.priceValue} numberOfLines={1}>{priceValue}</Text>
+          </>
+        ) : (
+          <Text style={styles.priceValue} numberOfLines={1}>{priceLabel}</Text>
+        )}
       </View>
-      <Text style={styles.price}>{priceLabel}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: "row", alignItems: "center", gap: 12,
+    flexDirection: "row", alignItems: "center", gap: 10,
     padding: 14, borderRadius: 14,
     backgroundColor: theme.colors.white,
     borderWidth: 1, borderColor: theme.colors.border,
   },
   rowActive: { borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight },
+
+  // Fixed-width left + right blocks so the middle text block gets all
+  // remaining width. Without this, long price labels could squeeze the
+  // title into a 1-character-wide column and render each letter on its
+  // own line.
+  leftBlock: { flexDirection: "row", alignItems: "center", gap: 10 },
+  textBlock: { flex: 1, minWidth: 0 },
+  priceBlock: { alignItems: "flex-end", minWidth: 70, marginLeft: 4 },
+
   radio: {
     width: 18, height: 18, borderRadius: 9,
     borderWidth: 2, borderColor: theme.colors.border,
@@ -178,8 +207,10 @@ const styles = StyleSheet.create({
   },
   iconWrapActive: { backgroundColor: theme.colors.brand },
   title:    { fontSize: 13, fontWeight: "800", color: theme.colors.text },
-  subtitle: { fontSize: 11, color: theme.colors.textLight, marginTop: 2, fontWeight: "600" },
-  price:    { fontSize: 13, fontWeight: "800", color: theme.colors.brand, marginLeft: 4 },
+  subtitle: { fontSize: 11, color: theme.colors.textLight, marginTop: 2, fontWeight: "600", lineHeight: 15 },
+
+  priceCaption: { fontSize: 9, color: theme.colors.textLight, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  priceValue:   { fontSize: 13, fontWeight: "800", color: theme.colors.brand, marginTop: 2 },
 
   groupCard: {
     borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border,
@@ -193,7 +224,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1, borderBottomColor: theme.colors.border,
   },
+  subText:  { flex: 1, minWidth: 0 },
   subTitle: { fontSize: 13, fontWeight: "700", color: theme.colors.text },
   subMeta:  { fontSize: 11, color: theme.colors.textLight, marginTop: 1, fontWeight: "600" },
-  subPrice: { fontSize: 13, fontWeight: "800", color: theme.colors.text },
+  subPrice: { fontSize: 13, fontWeight: "800", color: theme.colors.text, minWidth: 60, textAlign: "right" },
 });

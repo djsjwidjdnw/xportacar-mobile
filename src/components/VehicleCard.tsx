@@ -2,7 +2,10 @@ import { useEffect, useRef } from "react";
 import { Image } from "expo-image";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme, formatEur, formatKm, formatRemaining, formatScheduledStart } from "../lib/theme";
+import {
+  theme, formatEur, formatKm, formatRemaining, formatScheduledStart,
+  isAuctionLive, isAuctionEnded, isAuctionScheduled,
+} from "../lib/theme";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export interface VehicleListItem extends VehicleRow {
@@ -15,8 +18,9 @@ export interface VehicleListItem extends VehicleRow {
 // stays consistent across screens that use this component.
 function ctaFor(auction: AuctionRow | null): { label: string; icon: keyof typeof Ionicons.glyphMap; variant: "primary" | "muted" } {
   if (!auction) return { label: "View details", icon: "arrow-forward", variant: "muted" };
-  if (auction.status === "active")    return { label: "Bid Now",        icon: "hammer-outline", variant: "primary" };
-  if (auction.status === "scheduled") return { label: "Coming soon",    icon: "calendar-outline", variant: "muted" };
+  if (isAuctionEnded(auction))    return { label: "View result",   icon: "lock-closed-outline", variant: "muted" };
+  if (isAuctionLive(auction))     return { label: "Bid Now",       icon: "hammer-outline",     variant: "primary" };
+  if (isAuctionScheduled(auction)) return { label: "Coming soon",  icon: "calendar-outline",   variant: "muted" };
   return { label: "View details", icon: "arrow-forward", variant: "muted" };
 }
 
@@ -33,9 +37,16 @@ export function VehicleCard({
   isWatching?: boolean;
   onToggleWatch?: () => void;
 }) {
-  const live = vehicle.auction?.status === "active";
-  const scheduled = vehicle.auction?.status === "scheduled";
-  const price = live ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur) : vehicle.listed_price_eur;
+  // Compute live/scheduled/ended from end_time + status, not status alone:
+  // an auction with status="active" but end_time in the past is over.
+  const live = isAuctionLive(vehicle.auction);
+  const scheduled = isAuctionScheduled(vehicle.auction);
+  const ended = isAuctionEnded(vehicle.auction);
+  const price = live
+    ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
+    : ended
+      ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
+      : vehicle.listed_price_eur;
   const cta = ctaFor(vehicle.auction);
 
   // Pulsing green dot on live cards.
@@ -53,12 +64,14 @@ export function VehicleCard({
   }, [live, pulse]);
 
   // Status chip — surfaces the vehicle/auction state on every card so the
-  // marketplace mixes listed / scheduled / live without confusion.
-  const statusChip = live
-    ? { l: "LIVE NOW",  bg: theme.colors.successBg, fg: theme.colors.success }
+  // marketplace mixes listed / scheduled / live / ended without confusion.
+  const statusChip = ended
+    ? { l: "ENDED",     bg: theme.colors.errorBg,    fg: theme.colors.error }
+    : live
+    ? { l: "LIVE NOW",  bg: theme.colors.successBg,  fg: theme.colors.success }
     : scheduled
     ? { l: "SCHEDULED", bg: theme.colors.brandLight, fg: theme.colors.brand }
-    : { l: "LISTED",    bg: theme.colors.bgAlt,    fg: theme.colors.textMuted };
+    : { l: "LISTED",    bg: theme.colors.bgAlt,      fg: theme.colors.textMuted };
 
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}>
@@ -69,25 +82,31 @@ export function VehicleCard({
           contentFit="cover"
           transition={150}
         />
-        {live && (
+        {ended && (
+          <View style={styles.endedBadge}>
+            <Ionicons name="lock-closed" size={11} color={theme.colors.white} />
+            <Text style={styles.liveText}>ENDED</Text>
+          </View>
+        )}
+        {!ended && live && (
           <View style={styles.liveBadge}>
             <Animated.View style={[styles.liveDot, { transform: [{ scale: pulse }] }]} />
             <Text style={styles.liveText}>LIVE</Text>
           </View>
         )}
-        {scheduled && vehicle.auction && (
+        {!ended && scheduled && vehicle.auction && (
           <View style={styles.scheduledBadge}>
             <Ionicons name="calendar-outline" size={11} color={theme.colors.white} />
             <Text style={styles.scheduledText}>SCHEDULED</Text>
           </View>
         )}
-        {live && vehicle.auction && (
+        {!ended && live && vehicle.auction && (
           <View style={styles.timerBadge}>
             <Ionicons name="time-outline" size={12} color={theme.colors.white} />
             <Text style={styles.timerText}>{formatRemaining(vehicle.auction.end_time)}</Text>
           </View>
         )}
-        {scheduled && vehicle.auction && (
+        {!ended && scheduled && vehicle.auction && (
           <View style={styles.timerBadge}>
             <Ionicons name="calendar-outline" size={12} color={theme.colors.white} />
             <Text style={styles.timerText}>Starts {formatScheduledStart(vehicle.auction.start_time)}</Text>
@@ -132,18 +151,18 @@ export function VehicleCard({
         <View style={styles.priceRow}>
           <View>
             <Text style={styles.priceLabel}>
-              {live ? "Current bid" : scheduled ? "Starting price" : "Listed price"}
+              {ended ? "Final bid" : live ? "Current bid" : scheduled ? "Starting price" : "Listed price"}
             </Text>
             <Text style={styles.price}>
               {formatEur(scheduled ? vehicle.auction?.starting_price_eur : price)}
             </Text>
           </View>
-          {vehicle.auction && live && (
+          {vehicle.auction && live && !ended && (
             <Text style={styles.bidsSub}>
               {vehicle.auction.bid_count} bids · {vehicle.auction.bidder_count} bidders
             </Text>
           )}
-          {vehicle.auction && scheduled && (
+          {vehicle.auction && scheduled && !ended && (
             <View style={styles.scheduleHint}>
               <Ionicons name="time-outline" size={11} color={theme.colors.brand} />
               <Text style={styles.scheduleHintText}>
@@ -213,6 +232,11 @@ const styles = StyleSheet.create({
   image:     { width: "100%", height: "100%" },
   liveBadge: {
     position: "absolute", top: 12, left: 12, backgroundColor: theme.colors.success,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
+    flexDirection: "row", alignItems: "center", gap: 6,
+  },
+  endedBadge: {
+    position: "absolute", top: 12, left: 12, backgroundColor: theme.colors.error,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full,
     flexDirection: "row", alignItems: "center", gap: 6,
   },
