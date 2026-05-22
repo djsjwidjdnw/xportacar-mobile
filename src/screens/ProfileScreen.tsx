@@ -170,7 +170,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
             <View style={[styles.tag, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
               <Ionicons name="calendar-outline" size={12} color={theme.colors.white} />
               <Text style={[styles.tagText, { color: theme.colors.white }]}>
-                Member since {formatMonthYear(profile.created_at)}
+                {t("profile.memberSince", { date: formatMonthYear(profile.created_at) })}
               </Text>
             </View>
           )}
@@ -181,7 +181,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       <View style={styles.bidsHeaderRow}>
         <View style={styles.bidsHeaderLeft}>
           <Ionicons name="flash-outline" size={16} color={theme.colors.brand} />
-          <Text style={styles.bidsHeaderTitle}>My Bids</Text>
+          <Text style={styles.bidsHeaderTitle}>{t("profile.myBids")}</Text>
           {grouped.length > 0 && (
             <View style={styles.bidsCountPill}>
               <Text style={styles.bidsCountText}>{grouped.length}</Text>
@@ -194,7 +194,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
             hitSlop={8}
             style={({ pressed }) => [styles.seeAllBtn, pressed && { opacity: 0.6 }]}
           >
-            <Text style={styles.seeAllText}>See All</Text>
+            <Text style={styles.seeAllText}>{t("profile.seeAll")}</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.colors.brand} />
           </Pressable>
         )}
@@ -202,7 +202,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       {recent.length === 0 ? (
         <View style={styles.emptyCard}>
           <Ionicons name="flash-outline" size={20} color={theme.colors.textLight} />
-          <Text style={styles.emptyCardText}>No bids yet. Browse live auctions to get started.</Text>
+          <Text style={styles.emptyCardText}>{t("profile.noBids")}</Text>
         </View>
       ) : (
         <ScrollView
@@ -219,11 +219,11 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
             const ended   = a.status !== "active";
             const tag = ended
               ? (a.winner_id === user.id
-                ? { l: "Won",    bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
-                : { l: "Ended",  bg: theme.colors.bgAlt,     fg: theme.colors.textMuted, icon: "time-outline" as const })
+                ? { l: t("bids.won"),    bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
+                : { l: t("bids.ended"),  bg: theme.colors.bgAlt,     fg: theme.colors.textMuted, icon: "time-outline" as const })
               : winning
-              ? { l: "Winning", bg: theme.colors.successBg, fg: theme.colors.success, icon: "checkmark-circle" as const }
-              : { l: "Outbid",  bg: theme.colors.warningBg, fg: theme.colors.warning, icon: "alert-circle" as const };
+              ? { l: t("bids.winning"), bg: theme.colors.successBg, fg: theme.colors.success, icon: "checkmark-circle" as const }
+              : { l: t("bids.outbid"),  bg: theme.colors.warningBg, fg: theme.colors.warning, icon: "alert-circle" as const };
             return (
               <Pressable
                 key={b.id}
@@ -239,16 +239,16 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
                 </Text>
                 <View style={styles.bidCardPrices}>
                   <View>
-                    <Text style={styles.bidCardLabel}>Your bid</Text>
+                    <Text style={styles.bidCardLabel}>{t("profile.yourBid")}</Text>
                     <Text style={styles.bidCardYour}>{formatEur(b.amount_eur)}</Text>
                   </View>
                   <View>
-                    <Text style={styles.bidCardLabel}>Current</Text>
+                    <Text style={styles.bidCardLabel}>{t("profile.current")}</Text>
                     <Text style={styles.bidCardCurrent}>{formatEur(a.current_bid_eur ?? 0)}</Text>
                   </View>
                 </View>
                 <View style={styles.bidCardFoot}>
-                  <Text style={styles.bidCardFootText}>View auction</Text>
+                  <Text style={styles.bidCardFootText}>{t("profile.viewAuction")}</Text>
                   <Ionicons name="arrow-forward" size={12} color={theme.colors.brand} />
                 </View>
               </Pressable>
@@ -260,7 +260,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       {/* Won auctions */}
       {won.length > 0 && (
         <>
-          <SectionHeader icon="trophy-outline" label="Won auctions" right={`${won.length}`} />
+          <SectionHeader icon="trophy-outline" label={t("profile.wonAuctions")} right={`${won.length}`} />
           <View style={styles.card}>
             {won.map((b, i) => (
               <Pressable
@@ -275,7 +275,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
                   <Text style={styles.bidTitle}>
                     {b.auction?.vehicle ? `${b.auction.vehicle.year} ${b.auction.vehicle.make} ${b.auction.vehicle.model}` : "—"}
                   </Text>
-                  <Text style={styles.bidSub}>Won at {formatEur(b.amount_eur)}</Text>
+                  <Text style={styles.bidSub}>{t("profile.wonAt", { price: formatEur(b.amount_eur) })}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.textLight} />
               </Pressable>
@@ -304,7 +304,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       </View>
 
       {/* Language selector */}
-      <SectionHeader icon="language-outline" label="Language" />
+      <SectionHeader icon="language-outline" label={t("profile.language")} />
       <View style={styles.langCard}>
         {SUPPORTED.map((code) => {
           const info = LANG_LABELS[code];

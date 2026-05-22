@@ -1,0 +1,337 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  Pressable, ScrollView, Share, StyleSheet, Text, View,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+
+import { Spinner } from "../components/Spinner";
+import { CurrencyPills } from "../components/CurrencyPills";
+import { supabase } from "../lib/supabase";
+import { theme } from "../lib/theme";
+import { useCurrency } from "../lib/currency";
+import { useAuth } from "../lib/auth";
+import {
+  describeShipping, getShippingPriceEur, type ShippingChoice,
+} from "../components/ShippingOptions";
+import type { AuctionRow, VehicleRow } from "../lib/types";
+
+interface AuctionFull extends AuctionRow {
+  vehicle: VehicleRow;
+}
+
+// Returns a Date 5 working days (Mon-Fri) after `from`.
+function addWorkingDays(from: Date, n: number): Date {
+  const d = new Date(from.getTime());
+  let added = 0;
+  while (added < n) {
+    d.setDate(d.getDate() + 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) added += 1;
+  }
+  return d;
+}
+
+function formatDeadline(date: Date): string {
+  return date.toLocaleDateString("en-GB", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+}
+
+// Live "X days, Y hours" countdown until the payment deadline.
+function formatCountdownToDeadline(deadline: Date, now: Date): string {
+  const ms = deadline.getTime() - now.getTime();
+  if (ms <= 0) return "Payment overdue";
+  const totalHours = Math.floor(ms / 3600_000);
+  const days  = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  const mins  = Math.floor((ms % 3600_000) / 60_000);
+  if (days > 0)  return `${days} day${days === 1 ? "" : "s"}, ${hours}h remaining`;
+  if (hours > 0) return `${hours}h ${mins}m remaining`;
+  return `${mins}m remaining`;
+}
+
+const PLATFORM_FEE_PCT = 0.05;
+
+export function AuctionWonScreen({
+  route, navigation,
+}: {
+  route: { params: { id: string; shipping?: ShippingChoice } };
+  navigation: { navigate: (s: string, p?: object) => void; goBack: () => void };
+}) {
+  const { id, shipping: shippingParam } = route.params;
+  const { user } = useAuth();
+  const { format } = useCurrency();
+  const [auction, setAuction] = useState<AuctionFull | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(new Date());
+  const [shipping] = useState<ShippingChoice>(shippingParam ?? { kind: "port", port: "Hamburg" });
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("auctions")
+        .select(`*, vehicle:vehicles!vehicle_id(*)`)
+        .eq("id", id)
+        .single();
+      setAuction((data as AuctionFull) ?? null);
+      setLoading(false);
+    })();
+  }, [id]);
+
+  // Tick the countdown every minute (no need for second-level precision here).
+  useEffect(() => {
+    const i = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(i);
+  }, []);
+
+  const deadline = useMemo(() => addWorkingDays(new Date(), 5), []);
+
+  if (loading) return <Spinner label="Loading your invoice…" />;
+  if (!auction || !auction.vehicle) {
+    return <View style={styles.center}><Text>Auction not found.</Text></View>;
+  }
+
+  const hammerEur = auction.current_bid_eur ?? auction.starting_price_eur ?? 0;
+  const feeEur = hammerEur * PLATFORM_FEE_PCT;
+  const shippingEur = getShippingPriceEur(shipping);
+  const totalEur = hammerEur + feeEur + shippingEur;
+
+  const v = auction.vehicle;
+  const isWinner = !!user && auction.winner_id === user.id;
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
+      {/* Celebration banner */}
+      <LinearGradient
+        colors={["#039855", "#027A48"]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={styles.heroCard}
+      >
+        <View style={styles.trophyWrap}>
+          <Ionicons name="trophy" size={36} color={theme.colors.white} />
+        </View>
+        <Text style={styles.heroTitle}>Congratulations!</Text>
+        <Text style={styles.heroSub}>
+          {isWinner ? "You won this auction." : "This auction has closed."}
+        </Text>
+        <Text style={styles.heroVehicle}>
+          {v.year} {v.make} {v.model}
+        </Text>
+        <Text style={styles.heroPrice}>{format(hammerEur)}</Text>
+      </LinearGradient>
+
+      {/* Currency switcher */}
+      <View style={styles.currencyRow}>
+        <CurrencyPills />
+      </View>
+
+      {/* Invoice */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="receipt-outline" size={16} color={theme.colors.brand} />
+          <Text style={styles.sectionTitle}>Invoice</Text>
+        </View>
+
+        <View style={styles.invoiceCard}>
+          {/* Vehicle */}
+          <View style={styles.invRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.invLabel}>Vehicle</Text>
+              <Text style={styles.invValue}>
+                {v.year} {v.make} {v.model}
+              </Text>
+              <Text style={styles.invMeta}>VIN {v.vin} · {v.location_city}, {v.location_country}</Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <LineItem label="Hammer price" value={format(hammerEur)} />
+          <LineItem label="Platform fee (5%)" value={format(feeEur)} />
+          <LineItem
+            label={describeShipping(shipping)}
+            value={format(shippingEur)}
+            sub="Selected delivery method"
+          />
+
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Total due</Text>
+            <Text style={styles.totalAmount}>{format(totalEur)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Payment deadline */}
+      <View style={styles.section}>
+        <View style={styles.deadlineCard}>
+          <View style={styles.deadlineIcon}>
+            <Ionicons name="time-outline" size={20} color={theme.colors.warning} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.deadlineEyebrow}>Payment due within 5 working days</Text>
+            <Text style={styles.deadlineDate}>{formatDeadline(deadline)}</Text>
+            <Text style={styles.deadlineRemaining}>{formatCountdownToDeadline(deadline, now)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Payment instructions */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="card-outline" size={16} color={theme.colors.brand} />
+          <Text style={styles.sectionTitle}>Payment instructions</Text>
+        </View>
+
+        <View style={styles.payCard}>
+          <Text style={styles.payBody}>
+            Wire transfer to <Text style={styles.payStrong}>Bradshaw Automation</Text> within{" "}
+            <Text style={styles.payStrong}>5 working days</Text>. Shipping or warehouse pickup begins
+            upon payment confirmation.
+          </Text>
+
+          <View style={styles.bankBox}>
+            <Ionicons name="business-outline" size={16} color={theme.colors.textMuted} />
+            <Text style={styles.bankText}>
+              Bank details will be sent to your registered email
+              {user?.email ? ` (${user.email})` : ""}.
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => {
+              void Share.share({
+                message: `XportACar invoice — ${v.year} ${v.make} ${v.model}\nTotal due: ${format(totalEur)}\nPayment deadline: ${formatDeadline(deadline)}`,
+              });
+            }}
+            style={({ pressed }) => [styles.shareBtn, pressed && { opacity: 0.9 }]}
+          >
+            <Ionicons name="share-outline" size={16} color={theme.colors.brand} />
+            <Text style={styles.shareText}>Share invoice summary</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Footer actions */}
+      <View style={styles.footer}>
+        <Pressable
+          onPress={() => navigation.navigate("Marketplace")}
+          style={({ pressed }) => [styles.footerOutline, pressed && { opacity: 0.92 }]}
+        >
+          <Ionicons name="grid-outline" size={16} color={theme.colors.brand} />
+          <Text style={styles.footerOutlineText}>Back to marketplace</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => navigation.navigate("VehicleDetail", { id: v.id })}
+          style={({ pressed }) => [styles.footerOutline, pressed && { opacity: 0.92 }]}
+        >
+          <Ionicons name="document-text-outline" size={16} color={theme.colors.brand} />
+          <Text style={styles.footerOutlineText}>View vehicle</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+function LineItem({ label, sub, value }: { label: string; sub?: string; value: string }) {
+  return (
+    <View style={styles.lineRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.lineLabel}>{label}</Text>
+        {sub && <Text style={styles.lineSub}>{sub}</Text>}
+      </View>
+      <Text style={styles.lineValue}>{value}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  heroCard: {
+    margin: 16, marginTop: 24,
+    padding: 24, borderRadius: 20,
+    alignItems: "center",
+    shadowColor: theme.colors.success, shadowOpacity: 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+  },
+  trophyWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "rgba(255,255,255,0.32)",
+    marginBottom: 14,
+  },
+  heroTitle:   { fontSize: 26, fontWeight: "800", color: theme.colors.white, letterSpacing: -0.3 },
+  heroSub:     { fontSize: 13, color: "rgba(255,255,255,0.92)", marginTop: 4, fontWeight: "600" },
+  heroVehicle: { fontSize: 16, color: theme.colors.white, marginTop: 16, fontWeight: "800" },
+  heroPrice:   { fontSize: 36, fontWeight: "800", color: theme.colors.white, marginTop: 4 },
+
+  currencyRow: { paddingHorizontal: 20, marginTop: 4, marginBottom: 4 },
+
+  section: { paddingHorizontal: 16, marginTop: 18 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, paddingHorizontal: 4 },
+  sectionTitle:  { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+
+  invoiceCard: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border,
+    padding: 16,
+  },
+  invRow:    { flexDirection: "row", alignItems: "center", gap: 12 },
+  invLabel:  { fontSize: 10, color: theme.colors.textLight, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  invValue:  { fontSize: 15, fontWeight: "800", color: theme.colors.text, marginTop: 4 },
+  invMeta:   { fontSize: 11, color: theme.colors.textLight, marginTop: 2, fontWeight: "600" },
+
+  divider: { height: 1, backgroundColor: theme.colors.border, marginVertical: 14 },
+
+  lineRow:   { flexDirection: "row", alignItems: "center", paddingVertical: 6 },
+  lineLabel: { fontSize: 13, color: theme.colors.text, fontWeight: "600" },
+  lineSub:   { fontSize: 11, color: theme.colors.textLight, marginTop: 2 },
+  lineValue: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
+
+  totalRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    marginTop: 12, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: theme.colors.border,
+  },
+  totalLabel: { fontSize: 12, color: theme.colors.textLight, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  totalAmount:{ fontSize: 22, fontWeight: "800", color: theme.colors.brand },
+
+  deadlineCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    padding: 16, borderRadius: 14,
+    backgroundColor: theme.colors.warningBg,
+    borderWidth: 1, borderColor: "#fedf89",
+  },
+  deadlineIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.white },
+  deadlineEyebrow:  { fontSize: 10, color: theme.colors.warning, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  deadlineDate:     { fontSize: 15, color: theme.colors.text, fontWeight: "800", marginTop: 4 },
+  deadlineRemaining:{ fontSize: 12, color: theme.colors.warning, fontWeight: "700", marginTop: 2 },
+
+  payCard: {
+    backgroundColor: theme.colors.white, borderRadius: 16,
+    borderWidth: 1, borderColor: theme.colors.border, padding: 16,
+  },
+  payBody:   { fontSize: 13, color: theme.colors.textMuted, lineHeight: 19 },
+  payStrong: { color: theme.colors.text, fontWeight: "800" },
+  bankBox: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    marginTop: 12, padding: 12, borderRadius: 12,
+    backgroundColor: theme.colors.bgAlt,
+  },
+  bankText: { flex: 1, fontSize: 12, color: theme.colors.textMuted, fontWeight: "600" },
+  shareBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    marginTop: 12, height: 42, borderRadius: 10,
+    borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight,
+  },
+  shareText: { color: theme.colors.brand, fontWeight: "800", fontSize: 12 },
+
+  footer: { paddingHorizontal: 16, marginTop: 22, flexDirection: "row", gap: 10 },
+  footerOutline: {
+    flex: 1, height: 48, borderRadius: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    borderWidth: 1, borderColor: theme.colors.brand,
+  },
+  footerOutlineText: { color: theme.colors.brand, fontWeight: "800", fontSize: 13 },
+});

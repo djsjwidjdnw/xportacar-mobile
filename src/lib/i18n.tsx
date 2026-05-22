@@ -2,6 +2,8 @@
 // - Strings live in this file (subset of the web translations).
 // - The active locale is fed from the signed-in user's profile.language
 //   via I18nProvider in App.tsx, with a SecureStore fallback for guests.
+// - setLocale updates state synchronously (instant re-render across all
+//   screens) AND persists to both SecureStore and the user profile.
 
 import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { I18nManager } from "react-native";
@@ -15,12 +17,16 @@ const STORE_KEY = "xpc_locale";
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  // Navigation tabs / stack headers
   "nav.marketplace": "Marketplace",
   "nav.auctions":    "Live Auctions",
   "nav.live":        "Live",
   "nav.myBids":      "My Bids",
   "nav.watchlist":   "Watchlist",
   "nav.profile":     "Profile",
+  "nav.vehicle":     "Vehicle",
+  "nav.auction":     "Auction",
+  "nav.auctionWon":  "You Won",
   "nav.signOut":     "Sign out",
 
   "live.title":       "Live Auctions",
@@ -30,7 +36,7 @@ const en: Dict = {
 
   "vehicle.scheduled":  "Starts {when}",
   "vehicle.scheduledShort": "Scheduled",
-  "vehicle.shipping":   "Shipping to Europe",
+  "vehicle.shipping":   "Shipping & Delivery",
   "vehicle.shippingNote": "Estimates · door-to-port from Jebel Ali, Dubai",
   "vehicle.buyNowFull": "Buy now {price}",
 
@@ -55,6 +61,17 @@ const en: Dict = {
   "marketplace.search":    "Search make, model, VIN…",
   "marketplace.results":   "{count} of {total} vehicles",
   "marketplace.empty":     "No vehicles match your search.",
+  "marketplace.allTab":    "All Vehicles",
+  "marketplace.liveTab":   "Live Now",
+  "marketplace.liveCount": "{count} live · ending soonest first",
+  "marketplace.heroEyebrow":   "UAE → EUROPE",
+  "marketplace.heroTitle":     "Premium GCC Vehicles",
+  "marketplace.heroSub":       "Inspected. Auctioned. Delivered to Europe.",
+  "marketplace.heroVehicles":  "vehicles",
+  "marketplace.heroLiveNow":   "live now",
+  "marketplace.noLiveTitle":   "No live auctions",
+  "marketplace.noLiveBody":    "Nothing live right now. Switch to All Vehicles to see what's coming soon.",
+  "marketplace.noMatches":     "No matches",
 
   "vehicle.specs":         "Specifications",
   "vehicle.features":      "Features & equipment",
@@ -72,8 +89,8 @@ const en: Dict = {
   "auction.bidsBidders":   "{bids} bids · {bidders} bidders",
   "auction.history":       "Bid history",
   "auction.noBids":        "No bids yet.",
-  "auction.winning":       "You are winning",
-  "auction.outbid":        "You were outbid",
+  "auction.winning":       "You're winning!",
+  "auction.outbid":        "You've been outbid",
   "auction.outbidBody":    "New top bid {price}",
   "auction.buyNow":        "Buy now · {price}",
   "auction.buyNowQ":       "Buy now?",
@@ -105,6 +122,32 @@ const en: Dict = {
   "profile.kycRej":     "KYC rejected",
   "profile.signin":     "Sign in to view your profile.",
   "profile.phone":      "Phone",
+  "profile.language":   "Language",
+  "profile.memberSince":"Member since {date}",
+  "profile.myBids":     "My Bids",
+  "profile.seeAll":     "See All",
+  "profile.noBids":     "No bids yet. Browse live auctions to get started.",
+  "profile.wonAuctions":"Won auctions",
+  "profile.wonAt":      "Won at {price}",
+  "profile.yourBid":    "Your bid",
+  "profile.current":    "Current",
+  "profile.viewAuction":"View auction",
+
+  // Won screen
+  "won.title":          "Congratulations!",
+  "won.subtitle":       "You won this auction.",
+  "won.closed":         "This auction has closed.",
+  "won.invoice":        "Invoice",
+  "won.hammer":         "Hammer price",
+  "won.platformFee":    "Platform fee (5%)",
+  "won.totalDue":       "Total due",
+  "won.deadlineEyebrow":"Payment due within 5 working days",
+  "won.paymentTitle":   "Payment instructions",
+  "won.paymentBody":    "Wire transfer to Bradshaw Automation within 5 working days. Shipping or warehouse pickup begins upon payment confirmation.",
+  "won.bankDetails":    "Bank details will be sent to your registered email",
+  "won.share":          "Share invoice summary",
+  "won.backMarket":     "Back to marketplace",
+  "won.viewVehicle":    "View vehicle",
 };
 
 const de: Dict = {
@@ -113,7 +156,22 @@ const de: Dict = {
   "nav.myBids":      "Meine Gebote",
   "nav.watchlist":   "Merkliste",
   "nav.profile":     "Profil",
+  "nav.vehicle":     "Fahrzeug",
+  "nav.auction":     "Auktion",
+  "nav.auctionWon":  "Gewonnen",
   "nav.signOut":     "Abmelden",
+
+  "live.title":      "Live-Auktionen",
+  "live.subtitle":   "Biete jetzt auf bald endende Fahrzeuge.",
+  "live.empty":      "Aktuell keine Live-Auktionen.",
+  "live.endingSoon": "Endet zuerst",
+
+  "vehicle.scheduled":  "Startet {when}",
+  "vehicle.scheduledShort": "Geplant",
+  "vehicle.shipping":   "Versand & Lieferung",
+  "vehicle.shippingNote": "Schätzungen · von Jebel Ali, Dubai",
+  "vehicle.buyNowFull": "Sofort kaufen {price}",
+
   "auth.welcomeBack":   "Willkommen zurück",
   "auth.signInBlurb":   "Melde dich an, um auf VAE-Fahrzeuge zu bieten.",
   "auth.email":         "E-Mail",
@@ -130,16 +188,30 @@ const de: Dict = {
   "auth.backToSignIn":  "Zurück zur Anmeldung",
   "auth.weakPwd":       "Mindestens 8 Zeichen.",
   "auth.missing":       "E-Mail und Passwort eingeben.",
+
   "marketplace.title":  "Marktplatz",
   "marketplace.search": "Marke, Modell oder VIN suchen…",
   "marketplace.results":"{count} von {total} Fahrzeugen",
   "marketplace.empty":  "Keine Fahrzeuge gefunden.",
+  "marketplace.allTab": "Alle Fahrzeuge",
+  "marketplace.liveTab":"Jetzt Live",
+  "marketplace.liveCount":"{count} live · endet zuerst",
+  "marketplace.heroEyebrow":   "VAE → EUROPA",
+  "marketplace.heroTitle":     "Premium-Golfstaaten-Fahrzeuge",
+  "marketplace.heroSub":       "Inspiziert. Versteigert. Geliefert nach Europa.",
+  "marketplace.heroVehicles":  "Fahrzeuge",
+  "marketplace.heroLiveNow":   "jetzt live",
+  "marketplace.noLiveTitle":   "Keine Live-Auktionen",
+  "marketplace.noLiveBody":    "Aktuell nichts live. Wechsle zu „Alle Fahrzeuge“.",
+  "marketplace.noMatches":     "Keine Treffer",
+
   "vehicle.specs":      "Technische Daten",
   "vehicle.features":   "Ausstattung",
   "vehicle.condition":  "Zustandsbericht",
   "vehicle.noDamage":   "Keine gemeldeten Schäden.",
   "vehicle.sellerNotes":"Verkäufernotizen",
   "vehicle.viewAuction":"Zur Auktion",
+
   "auction.currentBid": "Aktuelles Gebot",
   "auction.yourBid":    "Dein Gebot",
   "auction.minBid":     "Min. nächstes Gebot: {price}",
@@ -149,7 +221,7 @@ const de: Dict = {
   "auction.bidsBidders":"{bids} Gebote · {bidders} Bieter",
   "auction.history":    "Gebotsverlauf",
   "auction.noBids":     "Noch keine Gebote.",
-  "auction.winning":    "Du führst",
+  "auction.winning":    "Du führst!",
   "auction.outbid":     "Du wurdest überboten",
   "auction.outbidBody": "Neues Höchstgebot {price}",
   "auction.buyNow":     "Sofort kaufen · {price}",
@@ -157,6 +229,7 @@ const de: Dict = {
   "auction.buyNowConfirm":"Ja, kaufen",
   "auction.buyWonTitle":"Du hast gewonnen!",
   "auction.buyWonBody": "Unser Team meldet sich.",
+
   "bids.title":         "Meine Gebote",
   "bids.empty":         "Noch keine Gebote.",
   "bids.won":           "Gewonnen",
@@ -164,11 +237,13 @@ const de: Dict = {
   "bids.winning":       "Führend",
   "bids.outbid":        "Überboten",
   "bids.topAndCurr":    "Dein Top {top} · Aktuell {current}",
+
   "watchlist.title":    "Merkliste",
   "watchlist.empty":    "Keine Fahrzeuge auf der Merkliste.",
   "watchlist.signin":   "Anmelden, um die Merkliste zu nutzen.",
   "watchlist.added":    "Zur Merkliste hinzugefügt",
   "watchlist.removed":  "Aus der Merkliste entfernt",
+
   "profile.title":      "Profil",
   "profile.section":    "Kontodetails",
   "profile.save":       "Änderungen speichern",
@@ -179,6 +254,31 @@ const de: Dict = {
   "profile.kycRej":     "KYC abgelehnt",
   "profile.signin":     "Anmelden, um Profil zu sehen.",
   "profile.phone":      "Telefon",
+  "profile.language":   "Sprache",
+  "profile.memberSince":"Mitglied seit {date}",
+  "profile.myBids":     "Meine Gebote",
+  "profile.seeAll":     "Alle anzeigen",
+  "profile.noBids":     "Noch keine Gebote. Erkunde Live-Auktionen.",
+  "profile.wonAuctions":"Gewonnene Auktionen",
+  "profile.wonAt":      "Gewonnen bei {price}",
+  "profile.yourBid":    "Dein Gebot",
+  "profile.current":    "Aktuell",
+  "profile.viewAuction":"Auktion ansehen",
+
+  "won.title":          "Glückwunsch!",
+  "won.subtitle":       "Du hast diese Auktion gewonnen.",
+  "won.closed":         "Diese Auktion ist beendet.",
+  "won.invoice":        "Rechnung",
+  "won.hammer":         "Zuschlagspreis",
+  "won.platformFee":    "Plattformgebühr (5 %)",
+  "won.totalDue":       "Gesamtbetrag",
+  "won.deadlineEyebrow":"Zahlung innerhalb von 5 Arbeitstagen",
+  "won.paymentTitle":   "Zahlungsanweisungen",
+  "won.paymentBody":    "Überweisung an Bradshaw Automation innerhalb von 5 Arbeitstagen. Versand oder Abholung beginnt nach Zahlungseingang.",
+  "won.bankDetails":    "Bankdaten werden an deine hinterlegte E-Mail gesendet",
+  "won.share":          "Rechnung teilen",
+  "won.backMarket":     "Zum Marktplatz",
+  "won.viewVehicle":    "Fahrzeug ansehen",
 };
 
 const fr: Dict = {
@@ -187,7 +287,22 @@ const fr: Dict = {
   "nav.myBids":       "Mes enchères",
   "nav.watchlist":    "Favoris",
   "nav.profile":      "Profil",
+  "nav.vehicle":      "Véhicule",
+  "nav.auction":      "Enchère",
+  "nav.auctionWon":   "Gagnée",
   "nav.signOut":      "Déconnexion",
+
+  "live.title":      "Enchères en direct",
+  "live.subtitle":   "Enchérissez sur des véhicules qui se terminent bientôt.",
+  "live.empty":      "Aucune enchère en direct.",
+  "live.endingSoon": "Se terminant le plus tôt",
+
+  "vehicle.scheduled":  "Débute {when}",
+  "vehicle.scheduledShort": "Programmée",
+  "vehicle.shipping":   "Livraison",
+  "vehicle.shippingNote": "Estimations · depuis Jebel Ali, Dubaï",
+  "vehicle.buyNowFull": "Acheter {price}",
+
   "auth.welcomeBack":   "Bon retour",
   "auth.signInBlurb":   "Connectez-vous pour enchérir sur des véhicules des EAU.",
   "auth.email":         "E-mail",
@@ -204,16 +319,30 @@ const fr: Dict = {
   "auth.backToSignIn":  "Retour à la connexion",
   "auth.weakPwd":       "Au moins 8 caractères.",
   "auth.missing":       "Saisissez l'e-mail et le mot de passe.",
+
   "marketplace.title":  "Marché",
   "marketplace.search": "Marque, modèle, VIN…",
   "marketplace.results":"{count} sur {total} véhicules",
   "marketplace.empty":  "Aucun véhicule.",
+  "marketplace.allTab": "Tous les véhicules",
+  "marketplace.liveTab":"En direct",
+  "marketplace.liveCount":"{count} en direct · se terminant le plus tôt",
+  "marketplace.heroEyebrow":   "EAU → EUROPE",
+  "marketplace.heroTitle":     "Véhicules premium du Golfe",
+  "marketplace.heroSub":       "Inspectés. Mis aux enchères. Livrés en Europe.",
+  "marketplace.heroVehicles":  "véhicules",
+  "marketplace.heroLiveNow":   "en direct",
+  "marketplace.noLiveTitle":   "Aucune enchère en direct",
+  "marketplace.noLiveBody":    "Rien en direct. Passez à « Tous les véhicules ».",
+  "marketplace.noMatches":     "Aucun résultat",
+
   "vehicle.specs":      "Caractéristiques",
   "vehicle.features":   "Équipement",
   "vehicle.condition":  "Rapport d'état",
   "vehicle.noDamage":   "Aucun dommage signalé.",
   "vehicle.sellerNotes":"Notes du vendeur",
   "vehicle.viewAuction":"Voir l'enchère",
+
   "auction.currentBid": "Enchère actuelle",
   "auction.yourBid":    "Votre enchère",
   "auction.minBid":     "Enchère min. : {price}",
@@ -223,7 +352,7 @@ const fr: Dict = {
   "auction.bidsBidders":"{bids} enchères · {bidders} enchérisseurs",
   "auction.history":    "Historique",
   "auction.noBids":     "Aucune enchère.",
-  "auction.winning":    "Vous êtes en tête",
+  "auction.winning":    "Vous êtes en tête !",
   "auction.outbid":     "Vous avez été surenchéri",
   "auction.outbidBody": "Nouvelle enchère {price}",
   "auction.buyNow":     "Acheter · {price}",
@@ -231,6 +360,7 @@ const fr: Dict = {
   "auction.buyNowConfirm":"Oui, acheter",
   "auction.buyWonTitle":"Vous avez gagné !",
   "auction.buyWonBody": "Notre équipe vous contactera.",
+
   "bids.title":         "Mes enchères",
   "bids.empty":         "Pas d'enchères.",
   "bids.won":           "Gagné",
@@ -238,11 +368,13 @@ const fr: Dict = {
   "bids.winning":       "En tête",
   "bids.outbid":        "Surenchéri",
   "bids.topAndCurr":    "Votre max {top} · Actuel {current}",
+
   "watchlist.title":    "Favoris",
   "watchlist.empty":    "Aucun favori.",
   "watchlist.signin":   "Connectez-vous pour les favoris.",
   "watchlist.added":    "Ajouté aux favoris",
   "watchlist.removed":  "Retiré des favoris",
+
   "profile.title":      "Profil",
   "profile.section":    "Détails du compte",
   "profile.save":       "Enregistrer",
@@ -253,6 +385,31 @@ const fr: Dict = {
   "profile.kycRej":     "KYC rejeté",
   "profile.signin":     "Connectez-vous pour voir le profil.",
   "profile.phone":      "Téléphone",
+  "profile.language":   "Langue",
+  "profile.memberSince":"Membre depuis {date}",
+  "profile.myBids":     "Mes enchères",
+  "profile.seeAll":     "Tout voir",
+  "profile.noBids":     "Aucune enchère. Parcourez les enchères en direct.",
+  "profile.wonAuctions":"Enchères gagnées",
+  "profile.wonAt":      "Gagné à {price}",
+  "profile.yourBid":    "Votre enchère",
+  "profile.current":    "Actuel",
+  "profile.viewAuction":"Voir l'enchère",
+
+  "won.title":          "Félicitations !",
+  "won.subtitle":       "Vous avez gagné cette enchère.",
+  "won.closed":         "Cette enchère est terminée.",
+  "won.invoice":        "Facture",
+  "won.hammer":         "Prix d'adjudication",
+  "won.platformFee":    "Frais de plateforme (5 %)",
+  "won.totalDue":       "Total dû",
+  "won.deadlineEyebrow":"Paiement sous 5 jours ouvrés",
+  "won.paymentTitle":   "Instructions de paiement",
+  "won.paymentBody":    "Virement à Bradshaw Automation sous 5 jours ouvrés. La livraison ou le retrait commence après confirmation du paiement.",
+  "won.bankDetails":    "Les coordonnées bancaires seront envoyées à votre e-mail",
+  "won.share":          "Partager la facture",
+  "won.backMarket":     "Retour au marché",
+  "won.viewVehicle":    "Voir le véhicule",
 };
 
 const ar: Dict = {
@@ -261,7 +418,22 @@ const ar: Dict = {
   "nav.myBids":       "عروضي",
   "nav.watchlist":    "المفضلة",
   "nav.profile":      "الملف الشخصي",
+  "nav.vehicle":      "المركبة",
+  "nav.auction":      "المزاد",
+  "nav.auctionWon":   "ربحت",
   "nav.signOut":      "تسجيل الخروج",
+
+  "live.title":      "المزادات المباشرة",
+  "live.subtitle":   "زايد الآن على مركبات تنتهي قريبًا.",
+  "live.empty":      "لا توجد مزادات مباشرة حاليًا.",
+  "live.endingSoon": "الأقرب للانتهاء أولًا",
+
+  "vehicle.scheduled":  "يبدأ {when}",
+  "vehicle.scheduledShort": "مجدول",
+  "vehicle.shipping":   "الشحن والتوصيل",
+  "vehicle.shippingNote": "تقديرات · من جبل علي، دبي",
+  "vehicle.buyNowFull": "اشترِ الآن {price}",
+
   "auth.welcomeBack":   "مرحبًا بعودتك",
   "auth.signInBlurb":   "سجّل الدخول للمزايدة على مركبات من الإمارات.",
   "auth.email":         "البريد الإلكتروني",
@@ -278,16 +450,30 @@ const ar: Dict = {
   "auth.backToSignIn":  "العودة لتسجيل الدخول",
   "auth.weakPwd":       "8 أحرف على الأقل.",
   "auth.missing":       "أدخل البريد الإلكتروني وكلمة المرور.",
+
   "marketplace.title":  "السوق",
   "marketplace.search": "ابحث بالماركة أو الموديل…",
   "marketplace.results":"{count} من {total} مركبة",
   "marketplace.empty":  "لا توجد مركبات.",
+  "marketplace.allTab": "كل المركبات",
+  "marketplace.liveTab":"مباشر الآن",
+  "marketplace.liveCount":"{count} مباشر · الأقرب للانتهاء",
+  "marketplace.heroEyebrow":   "الإمارات → أوروبا",
+  "marketplace.heroTitle":     "مركبات خليجية فاخرة",
+  "marketplace.heroSub":       "تمّ فحصها. تمّ بيعها بالمزاد. تُسلَّم إلى أوروبا.",
+  "marketplace.heroVehicles":  "مركبة",
+  "marketplace.heroLiveNow":   "مباشر الآن",
+  "marketplace.noLiveTitle":   "لا توجد مزادات مباشرة",
+  "marketplace.noLiveBody":    "لا شيء مباشر الآن. انتقل إلى „كل المركبات“.",
+  "marketplace.noMatches":     "لا نتائج",
+
   "vehicle.specs":      "المواصفات",
   "vehicle.features":   "المعدات",
   "vehicle.condition":  "تقرير الحالة",
   "vehicle.noDamage":   "لا توجد أضرار.",
   "vehicle.sellerNotes":"ملاحظات البائع",
   "vehicle.viewAuction":"اذهب إلى المزاد",
+
   "auction.currentBid": "العرض الحالي",
   "auction.yourBid":    "عرضك",
   "auction.minBid":     "الحد الأدنى للعرض التالي: {price}",
@@ -297,7 +483,7 @@ const ar: Dict = {
   "auction.bidsBidders":"{bids} عرض · {bidders} مزايد",
   "auction.history":    "سجل العروض",
   "auction.noBids":     "لا توجد عروض بعد.",
-  "auction.winning":    "أنت في الصدارة",
+  "auction.winning":    "أنت في الصدارة!",
   "auction.outbid":     "تم تجاوز عرضك",
   "auction.outbidBody": "عرض أعلى جديد {price}",
   "auction.buyNow":     "اشترِ الآن · {price}",
@@ -305,6 +491,7 @@ const ar: Dict = {
   "auction.buyNowConfirm":"نعم، اشترِ",
   "auction.buyWonTitle":"لقد فزت!",
   "auction.buyWonBody": "سيتواصل معك فريقنا.",
+
   "bids.title":         "عروضي",
   "bids.empty":         "لا توجد عروض.",
   "bids.won":           "فائز",
@@ -312,11 +499,13 @@ const ar: Dict = {
   "bids.winning":       "في الصدارة",
   "bids.outbid":        "متجاوَز",
   "bids.topAndCurr":    "عرضك الأعلى {top} · الحالي {current}",
+
   "watchlist.title":    "المفضلة",
   "watchlist.empty":    "لا توجد مفضلة.",
   "watchlist.signin":   "سجّل الدخول لاستخدام المفضلة.",
   "watchlist.added":    "أُضيف إلى المفضلة",
   "watchlist.removed":  "أُزيل من المفضلة",
+
   "profile.title":      "الملف الشخصي",
   "profile.section":    "تفاصيل الحساب",
   "profile.save":       "حفظ التغييرات",
@@ -327,6 +516,31 @@ const ar: Dict = {
   "profile.kycRej":     "رُفضت الهوية",
   "profile.signin":     "سجّل الدخول لعرض الملف.",
   "profile.phone":      "الهاتف",
+  "profile.language":   "اللغة",
+  "profile.memberSince":"عضو منذ {date}",
+  "profile.myBids":     "عروضي",
+  "profile.seeAll":     "عرض الكل",
+  "profile.noBids":     "لا توجد عروض. تصفّح المزادات المباشرة.",
+  "profile.wonAuctions":"المزادات المربوحة",
+  "profile.wonAt":      "فُزت عند {price}",
+  "profile.yourBid":    "عرضك",
+  "profile.current":    "الحالي",
+  "profile.viewAuction":"عرض المزاد",
+
+  "won.title":          "مبروك!",
+  "won.subtitle":       "لقد فزت بهذا المزاد.",
+  "won.closed":         "انتهى هذا المزاد.",
+  "won.invoice":        "الفاتورة",
+  "won.hammer":         "سعر المطرقة",
+  "won.platformFee":    "رسوم المنصة (5%)",
+  "won.totalDue":       "المبلغ المستحق",
+  "won.deadlineEyebrow":"السداد خلال 5 أيام عمل",
+  "won.paymentTitle":   "تعليمات السداد",
+  "won.paymentBody":    "تحويل بنكي إلى Bradshaw Automation خلال 5 أيام عمل. يبدأ الشحن أو الاستلام عند تأكيد السداد.",
+  "won.bankDetails":    "ستُرسل تفاصيل البنك إلى بريدك المسجّل",
+  "won.share":          "شارك ملخص الفاتورة",
+  "won.backMarket":     "العودة إلى السوق",
+  "won.viewVehicle":    "عرض المركبة",
 };
 
 const DICTS: Record<Locale, Dict> = { en, de, ar, fr };
@@ -390,17 +604,24 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
+  // Setter — update React state SYNCHRONOUSLY so every consuming screen
+  // re-renders this frame.  Persistence to SecureStore + profile happens
+  // in the background; failures are silent because they shouldn't block
+  // the UI update the user just made.
   const setLocale = useCallback(async (next: Locale) => {
     setLocaleState(next);
     applyRtl(next === "ar");
-    await SecureStore.setItemAsync(STORE_KEY, next).catch(() => {});
-    // Best-effort: persist to profile so the web app picks it up too.
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from("profiles").update({ language: next }).eq("id", user.id);
-      }
-    } catch { /* silent */ }
+    // Persist for next launch.
+    void SecureStore.setItemAsync(STORE_KEY, next).catch(() => {});
+    // Persist to profile so other clients (web) pick it up.
+    void (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("profiles").update({ language: next }).eq("id", user.id);
+        }
+      } catch { /* silent */ }
+    })();
   }, []);
 
   const t = useCallback(

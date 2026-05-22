@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AuthProvider } from "./src/lib/auth";
 import { I18nProvider } from "./src/lib/i18n";
+import { CurrencyProvider } from "./src/lib/currency";
 import { RootNavigator } from "./src/navigation";
 
 export default function App() {
@@ -12,8 +13,10 @@ export default function App() {
       <SafeAreaProvider>
         <AuthProvider>
           <I18nProvider>
-            <StatusBar style="dark" />
-            <RootNavigator />
+            <CurrencyProvider>
+              <StatusBar style="dark" />
+              <RootNavigator />
+            </CurrencyProvider>
           </I18nProvider>
         </AuthProvider>
       </SafeAreaProvider>

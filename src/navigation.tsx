@@ -11,6 +11,7 @@ import { AuctionScreen as AuctionScreenImpl } from "./screens/AuctionScreen";
 import { WatchlistScreen as WatchlistScreenImpl } from "./screens/WatchlistScreen";
 import { ProfileScreen as ProfileScreenImpl } from "./screens/ProfileScreen";
 import { MyBidsScreen as MyBidsScreenImpl } from "./screens/MyBidsScreen";
+import { AuctionWonScreen as AuctionWonScreenImpl } from "./screens/AuctionWonScreen";
 
 // React-Navigation's Screen prop types differ from a hand-written screen
 // signature.  Cast through `unknown` here once so each screen stays
@@ -24,8 +25,10 @@ const AuctionScreen        = AuctionScreenImpl        as unknown as AnyScreen;
 const WatchlistScreen      = WatchlistScreenImpl      as unknown as AnyScreen;
 const ProfileScreen        = ProfileScreenImpl        as unknown as AnyScreen;
 const MyBidsScreen         = MyBidsScreenImpl         as unknown as AnyScreen;
+const AuctionWonScreen     = AuctionWonScreenImpl     as unknown as AnyScreen;
 
 import { useAuth } from "./lib/auth";
+import { useTranslation } from "./lib/i18n";
 import { theme } from "./lib/theme";
 
 const Stack = createNativeStackNavigator();
@@ -55,48 +58,70 @@ function makeTabIcon(name: keyof typeof Ionicons.glyphMap) {
   };
 }
 
+// Header titles are localised at render time via useTranslation in each
+// stack so that switching language re-renders the title strings instantly.
+
+function useStackTitles() {
+  const { t } = useTranslation();
+  return {
+    vehicle: t("nav.vehicle"),
+    auction: t("nav.auction"),
+    auctionWon: t("nav.auctionWon"),
+    myBids: t("nav.myBids"),
+  };
+}
+
 function MarketplaceStack() {
+  const titles = useStackTitles();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MarketplaceHome"  component={MarketplaceScreen} />
-      <Stack.Screen name="VehicleDetail"    component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
-      <Stack.Screen name="Auction"          component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
+      <Stack.Screen name="VehicleDetail"    component={VehicleDetailScreen} options={{ headerShown: true, title: titles.vehicle }} />
+      <Stack.Screen name="Auction"          component={AuctionScreen}       options={{ headerShown: true, title: titles.auction }} />
+      <Stack.Screen name="AuctionWon"       component={AuctionWonScreen}    options={{ headerShown: true, title: titles.auctionWon }} />
     </Stack.Navigator>
   );
 }
 
 function MyBidsStack() {
+  const titles = useStackTitles();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MyBidsHome"    component={MyBidsScreen} />
-      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
-      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
+      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: titles.vehicle }} />
+      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: titles.auction }} />
+      <Stack.Screen name="AuctionWon"    component={AuctionWonScreen}    options={{ headerShown: true, title: titles.auctionWon }} />
     </Stack.Navigator>
   );
 }
 
 function WatchlistStack() {
+  const titles = useStackTitles();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="WatchlistHome" component={WatchlistScreen} />
-      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
-      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
+      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: titles.vehicle }} />
+      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: titles.auction }} />
+      <Stack.Screen name="AuctionWon"    component={AuctionWonScreen}    options={{ headerShown: true, title: titles.auctionWon }} />
     </Stack.Navigator>
   );
 }
 
 function ProfileStack() {
+  const titles = useStackTitles();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileHome"   component={ProfileScreen} />
-      <Stack.Screen name="MyBidsList"    component={MyBidsScreen}        options={{ headerShown: true, title: "My Bids" }} />
-      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: "Vehicle" }} />
-      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: "Auction" }} />
+      <Stack.Screen name="MyBidsList"    component={MyBidsScreen}        options={{ headerShown: true, title: titles.myBids }} />
+      <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: titles.vehicle }} />
+      <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: titles.auction }} />
+      <Stack.Screen name="AuctionWon"    component={AuctionWonScreen}    options={{ headerShown: true, title: titles.auctionWon }} />
     </Stack.Navigator>
   );
 }
 
 function MainTabs() {
+  const { t } = useTranslation();
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -116,22 +141,22 @@ function MainTabs() {
       <Tabs.Screen
         name="Marketplace"
         component={MarketplaceStack}
-        options={{ tabBarIcon: makeTabIcon("cart-outline") }}
+        options={{ tabBarLabel: t("nav.marketplace"), tabBarIcon: makeTabIcon("cart-outline") }}
       />
       <Tabs.Screen
         name="MyBids"
         component={MyBidsStack}
-        options={{ tabBarLabel: "My Bids", tabBarIcon: makeTabIcon("flash-outline") }}
+        options={{ tabBarLabel: t("nav.myBids"), tabBarIcon: makeTabIcon("flash-outline") }}
       />
       <Tabs.Screen
         name="Watchlist"
         component={WatchlistStack}
-        options={{ tabBarIcon: makeTabIcon("heart-outline") }}
+        options={{ tabBarLabel: t("nav.watchlist"), tabBarIcon: makeTabIcon("heart-outline") }}
       />
       <Tabs.Screen
         name="Profile"
         component={ProfileStack}
-        options={{ tabBarIcon: makeTabIcon("person-outline") }}
+        options={{ tabBarLabel: t("nav.profile"), tabBarIcon: makeTabIcon("person-outline") }}
       />
     </Tabs.Navigator>
   );

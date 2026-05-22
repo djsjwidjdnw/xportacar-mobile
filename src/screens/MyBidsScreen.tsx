@@ -6,6 +6,7 @@ import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
+import { useTranslation } from "../lib/i18n";
 import { theme, formatEur } from "../lib/theme";
 
 interface BidWithAuction {
@@ -24,6 +25,7 @@ interface BidWithAuction {
 // Full bid history surfaced from the Profile tab's "See All" link.
 export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [rows, setRows] = useState<BidWithAuction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -85,12 +87,12 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
           const won = a.status === "sold" && a.winner_id === user.id;
           const ended = a.status !== "active";
           const tag = won
-            ? { l: "Won",     bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
+            ? { l: t("bids.won"),     bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
             : ended
-            ? { l: "Ended",   bg: theme.colors.bgAlt,     fg: theme.colors.textMuted, icon: "time-outline" as const }
+            ? { l: t("bids.ended"),   bg: theme.colors.bgAlt,     fg: theme.colors.textMuted, icon: "time-outline" as const }
             : winning
-            ? { l: "Winning", bg: theme.colors.successBg, fg: theme.colors.success, icon: "checkmark-circle" as const }
-            : { l: "Outbid",  bg: theme.colors.warningBg, fg: theme.colors.warning, icon: "alert-circle" as const };
+            ? { l: t("bids.winning"), bg: theme.colors.successBg, fg: theme.colors.success, icon: "checkmark-circle" as const }
+            : { l: t("bids.outbid"),  bg: theme.colors.warningBg, fg: theme.colors.warning, icon: "alert-circle" as const };
           return (
             <Pressable
               onPress={() => navigation.navigate("Auction", { id: a.id })}
@@ -101,7 +103,7 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
                   {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}` : "—"}
                 </Text>
                 <Text style={styles.sub}>
-                  Your top {formatEur(item.amount_eur)} · Current {formatEur(a.current_bid_eur ?? 0)}
+                  {t("bids.topAndCurr", { top: formatEur(item.amount_eur), current: formatEur(a.current_bid_eur ?? 0) })}
                 </Text>
               </View>
               <View style={[styles.tag, { backgroundColor: tag.bg }]}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
@@ -7,8 +7,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Spinner } from "../components/Spinner";
+import { CurrencyPills } from "../components/CurrencyPills";
+import {
+  ShippingOptions, type ShippingChoice, describeShipping, getShippingPriceEur,
+} from "../components/ShippingOptions";
 import { supabase } from "../lib/supabase";
-import { theme, formatEur, formatKm, formatRemaining, formatScheduledStartLong } from "../lib/theme";
+import { theme, formatKm, formatRemaining, formatScheduledStartLong } from "../lib/theme";
+import { useCurrency } from "../lib/currency";
+import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow } from "../lib/types";
 
 type VehicleFull = VehicleRow & {
@@ -24,15 +30,6 @@ const SEVERITY_COLOR: Record<string, { bg: string; fg: string; border: string }>
   major:    { bg: theme.colors.errorBg,   fg: theme.colors.error, border: "#fda29b" },
 };
 
-// Door-to-port estimates from Jebel Ali. Source of truth for both web + mobile;
-// keep these in sync with the web app's shipping table.
-const SHIPPING_PORTS = [
-  { city: "Hamburg",   country: "Germany",     priceEur: 1800, days: 28, icon: "boat-outline" as const },
-  { city: "Rotterdam", country: "Netherlands", priceEur: 1600, days: 25, icon: "boat-outline" as const },
-  { city: "Genoa",     country: "Italy",       priceEur: 2100, days: 22, icon: "boat-outline" as const },
-  { city: "Barcelona", country: "Spain",       priceEur: 2200, days: 24, icon: "boat-outline" as const },
-];
-
 export function VehicleDetailScreen({
   route, navigation,
 }: {
@@ -40,9 +37,12 @@ export function VehicleDetailScreen({
   navigation: { navigate: (s: string, p?: object) => void };
 }) {
   const { id } = route.params;
+  const { t } = useTranslation();
+  const { format } = useCurrency();
   const [vehicle, setVehicle] = useState<VehicleFull | null>(null);
   const [loading, setLoading] = useState(true);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [shipping, setShipping] = useState<ShippingChoice>({ kind: "port", port: "Hamburg" });
 
   useEffect(() => {
     (async () => {
@@ -61,26 +61,41 @@ export function VehicleDetailScreen({
     })();
   }, [id]);
 
-  if (loading) return <Spinner label="Loading vehicle…" />;
-  if (!vehicle) return <View style={styles.center}><Text>Vehicle not found.</Text></View>;
-
-  const photos = (vehicle.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order);
-  const auction = vehicle.auctions?.[0];
+  const photos = useMemo(
+    () => (vehicle?.vehicle_photos ?? []).slice().sort((a, b) => a.sort_order - b.sort_order),
+    [vehicle],
+  );
+  const auction = vehicle?.auctions?.[0];
   const live      = auction?.status === "active";
   const scheduled = auction?.status === "scheduled";
   const ended     = auction?.status === "ended" || auction?.status === "sold";
-  const price = live ? (auction?.current_bid_eur ?? auction?.starting_price_eur) : vehicle.listed_price_eur;
-  const buyNowAvailable = live && auction?.buy_now_price_eur != null;
-  const width = Dimensions.get("window").width;
 
+  // Headline price for the sticky bar and "total estimate" — uses raw EUR
+  // since formatEur is replaced with the currency-aware format() helper.
+  const priceEur = live
+    ? (auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0)
+    : scheduled
+      ? (auction?.starting_price_eur ?? 0)
+      : ended
+        ? (auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0)
+        : (vehicle?.listed_price_eur ?? 0);
+
+  const shippingEur = getShippingPriceEur(shipping);
+  const totalEur = priceEur + shippingEur;
+
+  const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
+
+  if (loading) return <Spinner label="Loading vehicle…" />;
+  if (!vehicle) return <View style={styles.center}><Text>Vehicle not found.</Text></View>;
+
+  const width = Dimensions.get("window").width;
   const goAuction = () => auction && navigation.navigate("Auction", { id: auction.id });
   const goBuyNow  = () => auction && navigation.navigate("Auction", { id: auction.id, buyNow: true });
-
-  const stickyVisible = !!auction; // any auction → some CTA appears
+  const stickyVisible = !!auction;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: stickyVisible ? 110 : 32 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: stickyVisible ? 140 : 32 }}>
         {/* Carousel */}
         <View>
           <FlatList
@@ -117,18 +132,22 @@ export function VehicleDetailScreen({
             {vehicle.exterior_color} · {vehicle.interior_color} · {vehicle.location_city}, {vehicle.location_country}
           </Text>
 
+          <View style={{ marginTop: 12 }}>
+            <CurrencyPills />
+          </View>
+
           {scheduled && auction && (
             <View style={styles.scheduledCard}>
               <Ionicons name="calendar" size={18} color={theme.colors.brand} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.scheduledLabel}>Auction starts</Text>
+                <Text style={styles.scheduledLabel}>{t("vehicle.scheduledShort")}</Text>
                 <Text style={styles.scheduledValue}>{formatScheduledStartLong(auction.start_time)}</Text>
               </View>
             </View>
           )}
 
           {/* Specs */}
-          <Section title="Specifications" icon="information-circle-outline">
+          <Section title={t("vehicle.specs")} icon="information-circle-outline">
             <View style={styles.specGrid}>
               <Spec icon="barcode-outline"        label="VIN"          value={vehicle.vin} />
               <Spec icon="speedometer-outline"    label="Mileage"      value={formatKm(vehicle.mileage_km)} />
@@ -137,40 +156,30 @@ export function VehicleDetailScreen({
               <Spec icon="car-sport-outline"      label="Body"         value={vehicle.body_type ?? "—"} />
               <Spec icon="color-palette-outline"  label="Exterior"     value={vehicle.exterior_color ?? "—"} />
               <Spec icon="color-fill-outline"     label="Interior"     value={vehicle.interior_color ?? "—"} />
-              <Spec icon="pricetag-outline"       label="Listed price" value={formatEur(vehicle.listed_price_eur)} />
+              <Spec icon="pricetag-outline"       label="Listed price" value={format(vehicle.listed_price_eur)} />
             </View>
           </Section>
 
-          {/* Shipping estimate */}
-          <Section title="Shipping to Europe" icon="boat-outline">
-            <Text style={styles.shipSub}>Door-to-port estimates from Jebel Ali, Dubai.</Text>
-            <View style={styles.shipCard}>
-              <View style={styles.shipHeaderRow}>
-                <Text style={[styles.shipHeader, { flex: 2 }]}>Port</Text>
-                <Text style={[styles.shipHeader, { flex: 1, textAlign: "right" }]}>From</Text>
-                <Text style={[styles.shipHeader, { width: 70, textAlign: "right" }]}>ETA</Text>
+          {/* Shipping options selector */}
+          <Section title="Shipping & Delivery" icon="boat-outline">
+            <Text style={styles.shipSub}>Choose how the vehicle reaches you. Prices reflect the selected currency.</Text>
+            <ShippingOptions value={shipping} onChange={setShipping} />
+
+            {/* Live total estimate */}
+            <View style={styles.totalCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.totalLabel}>Total estimate</Text>
+                <Text style={styles.totalBreakdown}>
+                  {format(priceEur)} vehicle + {format(shippingEur)} {describeShipping(shipping)}
+                </Text>
               </View>
-              {SHIPPING_PORTS.map((p, i) => (
-                <View key={p.city} style={[styles.shipRow, i === SHIPPING_PORTS.length - 1 && { borderBottomWidth: 0 }]}>
-                  <View style={[styles.shipCity, { flex: 2 }]}>
-                    <View style={styles.shipIconWrap}>
-                      <Ionicons name={p.icon} size={14} color={theme.colors.brand} />
-                    </View>
-                    <View>
-                      <Text style={styles.shipCityName}>{p.city}</Text>
-                      <Text style={styles.shipCountry}>{p.country}</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.shipPrice, { flex: 1, textAlign: "right" }]}>{formatEur(p.priceEur)}</Text>
-                  <Text style={[styles.shipDays, { width: 70, textAlign: "right" }]}>{p.days} days</Text>
-                </View>
-              ))}
+              <Text style={styles.totalAmount}>{format(totalEur)}</Text>
             </View>
           </Section>
 
           {/* Features */}
           {Array.isArray(vehicle.features) && vehicle.features.length > 0 && (
-            <Section title="Features & equipment" icon="sparkles-outline">
+            <Section title={t("vehicle.features")} icon="sparkles-outline">
               <View style={styles.tagRow}>
                 {vehicle.features.map((f) => (
                   <View key={f} style={styles.tag}>
@@ -182,12 +191,12 @@ export function VehicleDetailScreen({
             </Section>
           )}
 
-          {/* Condition report — colour-coded */}
-          <Section title="Condition report" icon="shield-checkmark-outline">
+          {/* Condition report */}
+          <Section title={t("vehicle.condition")} icon="shield-checkmark-outline">
             {vehicle.vehicle_damages.length === 0 ? (
               <View style={styles.cleanReport}>
                 <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
-                <Text style={styles.cleanReportText}>No reported damage. Inspected and certified.</Text>
+                <Text style={styles.cleanReportText}>{t("vehicle.noDamage")}</Text>
               </View>
             ) : (
               <View style={{ gap: 10 }}>
@@ -210,52 +219,51 @@ export function VehicleDetailScreen({
           </Section>
 
           {vehicle.description && (
-            <Section title="Seller notes" icon="chatbox-outline">
+            <Section title={t("vehicle.sellerNotes")} icon="chatbox-outline">
               <Text style={styles.bodyText}>{vehicle.description}</Text>
             </Section>
           )}
         </View>
       </ScrollView>
 
-      {/* Sticky bottom CTA bar — adapts to auction state */}
+      {/* Sticky bottom CTA bar — Bid Now (gradient) + Buy Now (outline) when available */}
       {stickyVisible && (
         <View style={styles.stickyBar}>
-          <View style={{ flex: 1 }}>
+          <View style={styles.stickyTop}>
             <Text style={styles.stickyLabel}>
-              {live ? "Current bid" : scheduled ? "Starting price" : ended ? "Final price" : "Listed price"}
+              {live ? t("auction.currentBid") : scheduled ? "Starting price" : ended ? "Final price" : "Listed price"}
             </Text>
-            <Text style={styles.stickyPrice}>
-              {formatEur(live ? price : scheduled ? auction?.starting_price_eur : ended ? (auction?.current_bid_eur ?? auction?.starting_price_eur) : price)}
-            </Text>
+            <Text style={styles.stickyPrice}>{format(priceEur)}</Text>
           </View>
+
           <View style={styles.stickyCtas}>
             {buyNowAvailable && (
               <Pressable
                 onPress={goBuyNow}
-                style={({ pressed }) => [styles.buyNowBtn, pressed && { opacity: 0.9 }]}
+                style={({ pressed }) => [styles.buyNowBtn, pressed && { opacity: 0.92 }]}
               >
-                <Ionicons name="flash" size={14} color={theme.colors.brand} />
+                <Ionicons name="flash" size={16} color={theme.colors.brand} />
                 <Text style={styles.buyNowText}>
-                  Buy now {formatEur(auction?.buy_now_price_eur)}
+                  Buy Now {format(auction?.buy_now_price_eur ?? 0)}
                 </Text>
               </Pressable>
             )}
             <Pressable
               onPress={goAuction}
-              style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
+              style={({ pressed }) => [styles.bidNowShadow, pressed && { opacity: 0.92 }]}
             >
               <LinearGradient
                 colors={[theme.colors.brand, theme.colors.brandDark]}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={styles.stickyCta}
+                style={styles.bidNowBtn}
               >
                 <Ionicons
                   name={live ? "hammer-outline" : scheduled ? "eye-outline" : "albums-outline"}
-                  size={16}
+                  size={18}
                   color={theme.colors.white}
                 />
-                <Text style={styles.stickyCtaText}>
-                  {live ? "Place Bid" : scheduled ? "View Auction" : "View Auction"}
+                <Text style={styles.bidNowText}>
+                  {live ? "Bid Now" : scheduled ? "View Auction" : "View Auction"}
                 </Text>
               </LinearGradient>
             </Pressable>
@@ -351,25 +359,16 @@ const styles = StyleSheet.create({
   specLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
   specValue: { fontSize: 13, color: theme.colors.text, fontWeight: "700", marginTop: 2 },
 
-  // Shipping table
+  // Shipping
   shipSub: { fontSize: 12, color: theme.colors.textLight, marginTop: -6, marginBottom: 12 },
-  shipCard: {
-    backgroundColor: theme.colors.white,
-    borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border,
-    paddingHorizontal: 14, paddingVertical: 4,
+  totalCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    marginTop: 14, padding: 14, borderRadius: 14,
+    backgroundColor: theme.colors.brandLight, borderWidth: 1, borderColor: "#b2ddff",
   },
-  shipHeaderRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-  shipHeader: { fontSize: 10, fontWeight: "800", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.5 },
-  shipRow: {
-    flexDirection: "row", alignItems: "center", paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: theme.colors.border,
-  },
-  shipCity: { flexDirection: "row", alignItems: "center", gap: 10 },
-  shipIconWrap: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.brandLight, alignItems: "center", justifyContent: "center" },
-  shipCityName: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
-  shipCountry:  { fontSize: 11, color: theme.colors.textLight, fontWeight: "600", marginTop: 1 },
-  shipPrice: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
-  shipDays:  { fontSize: 12, color: theme.colors.textMuted, fontWeight: "600" },
+  totalLabel:      { fontSize: 10, color: theme.colors.brand, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  totalBreakdown:  { fontSize: 11, color: theme.colors.textMuted, marginTop: 4, fontWeight: "600" },
+  totalAmount:     { fontSize: 20, fontWeight: "800", color: theme.colors.brand },
 
   // Tags
   tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
@@ -404,24 +403,27 @@ const styles = StyleSheet.create({
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: theme.colors.white,
     borderTopWidth: 1, borderTopColor: theme.colors.border,
-    paddingTop: 12, paddingBottom: 24, paddingHorizontal: 16,
-    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingTop: 12, paddingBottom: 22, paddingHorizontal: 16,
     shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: -4 },
     elevation: 8,
   },
-  stickyLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  stickyTop:   { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 },
+  stickyLabel: { fontSize: 10, color: theme.colors.textLight, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
   stickyPrice: { fontSize: 22, fontWeight: "800", color: theme.colors.brand },
-  stickyCtas: { flexDirection: "row", alignItems: "center", gap: 8 },
+  stickyCtas:  { flexDirection: "row", gap: 8 },
   buyNowBtn: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 14, height: 48, borderRadius: 12,
-    borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    flex: 1, height: 52, borderRadius: 14,
+    borderWidth: 1.5, borderColor: theme.colors.brand, backgroundColor: theme.colors.white,
   },
-  buyNowText: { color: theme.colors.brand, fontSize: 13, fontWeight: "800" },
-  stickyCta: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 24, height: 48, borderRadius: 12,
-    shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  buyNowText: { color: theme.colors.brand, fontSize: 14, fontWeight: "800" },
+  bidNowShadow: {
+    flex: 1, borderRadius: 14,
+    shadowColor: theme.colors.brand, shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5,
   },
-  stickyCtaText: { color: theme.colors.white, fontSize: 15, fontWeight: "800" },
+  bidNowBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 52, borderRadius: 14,
+  },
+  bidNowText: { color: theme.colors.white, fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
 });

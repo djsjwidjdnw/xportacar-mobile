@@ -114,18 +114,18 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
               end={{ x: 1, y: 1 }}
               style={styles.hero}
             >
-              <Text style={styles.heroEyebrow}>UAE → EUROPE</Text>
-              <Text style={styles.heroTitle}>Premium GCC Vehicles</Text>
-              <Text style={styles.heroSubtitle}>Inspected. Auctioned. Delivered to Europe.</Text>
+              <Text style={styles.heroEyebrow}>{t("marketplace.heroEyebrow")}</Text>
+              <Text style={styles.heroTitle}>{t("marketplace.heroTitle")}</Text>
+              <Text style={styles.heroSubtitle}>{t("marketplace.heroSub")}</Text>
               <View style={styles.heroStats}>
                 <View>
                   <Text style={styles.heroStatNum}>{items.length}</Text>
-                  <Text style={styles.heroStatLabel}>vehicles</Text>
+                  <Text style={styles.heroStatLabel}>{t("marketplace.heroVehicles")}</Text>
                 </View>
                 <View style={styles.heroDivider} />
                 <View>
                   <Text style={styles.heroStatNum}>{liveItems.length}</Text>
-                  <Text style={styles.heroStatLabel}>live now</Text>
+                  <Text style={styles.heroStatLabel}>{t("marketplace.heroLiveNow")}</Text>
                 </View>
               </View>
             </LinearGradient>
@@ -151,14 +151,14 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
                 active={filter === "all"}
                 onPress={() => setFilter("all")}
                 icon="grid-outline"
-                label="All Vehicles"
+                label={t("marketplace.allTab")}
                 count={items.length}
               />
               <SegPill
                 active={filter === "live"}
                 onPress={() => setFilter("live")}
                 icon="flash"
-                label="Live Now"
+                label={t("marketplace.liveTab")}
                 count={liveItems.length}
                 liveAccent
               />
@@ -167,7 +167,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
             <View style={styles.resultsRow}>
               <Text style={styles.resultsLabel}>
                 {filter === "live"
-                  ? `${filtered.length} live · ending soonest first`
+                  ? t("marketplace.liveCount", { count: filtered.length })
                   : t("marketplace.results", { count: filtered.length, total: items.length })}
               </Text>
             </View>
@@ -212,11 +212,11 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           filter === "live" ? (
             <EmptyState
               icon="flash-outline"
-              title="No live auctions"
-              body="Nothing live right now. Switch to All Vehicles to see what's coming soon."
+              title={t("marketplace.noLiveTitle")}
+              body={t("marketplace.noLiveBody")}
             />
           ) : (
-            <EmptyState icon="car-outline" title="No matches" body={t("marketplace.empty")} />
+            <EmptyState icon="car-outline" title={t("marketplace.noMatches")} body={t("marketplace.empty")} />
           )
         }
       />
