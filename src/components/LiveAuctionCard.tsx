@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import {
   theme, formatEur, formatCountdown, msRemaining,
-  isAuctionLive, isAuctionEnded,
+  isAuctionLive, isAuctionEnded, thumb,
 } from "../lib/theme";
 import type { VehicleListItem } from "./VehicleCard";
 
@@ -78,7 +78,7 @@ export function LiveAuctionCard({
       {/* Photo */}
       <View style={styles.imageWrap}>
         <Image
-          source={vehicle.photo_url ? { uri: vehicle.photo_url } : require("../../assets/icon.png")}
+          source={vehicle.photo_url ? { uri: thumb(vehicle.photo_url, 800) } : require("../../assets/icon.png")}
           style={styles.image}
           contentFit="cover"
           transition={150}

@@ -45,6 +45,33 @@ export const formatEur = (n: number | null | undefined): string => {
 export const formatKm = (n: number | null | undefined): string =>
   n == null ? "—" : `${n.toLocaleString("en-GB")} km`;
 
+// Small thumbnail variant for list/grid cards so we don't pull full-size
+// photos over cellular at 100k-vehicle scale. Supabase Storage URLs → image
+// render endpoint; Unsplash → w/q params; everything else unchanged.
+export const thumb = (url: string | null | undefined, width = 600): string => {
+  if (!url) return "";
+  try {
+    const u = new URL(url);
+    if (u.pathname.includes("/storage/v1/object/public/")) {
+      u.pathname = u.pathname.replace("/storage/v1/object/public/", "/storage/v1/render/image/public/");
+      u.searchParams.set("width", String(width));
+      u.searchParams.set("quality", "70");
+      u.searchParams.set("resize", "cover");
+      return u.toString();
+    }
+    if (u.hostname.includes("images.unsplash.com")) {
+      u.searchParams.set("w", String(width));
+      u.searchParams.set("q", "70");
+      u.searchParams.set("auto", "format");
+      u.searchParams.set("fit", "crop");
+      return u.toString();
+    }
+    return url;
+  } catch {
+    return url;
+  }
+};
+
 export const formatRemaining = (endIso: string): string => {
   const ms = new Date(endIso).getTime() - Date.now();
   if (ms <= 0) return "Ended";

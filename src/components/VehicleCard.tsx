@@ -4,7 +4,7 @@ import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-nativ
 import { Ionicons } from "@expo/vector-icons";
 import {
   theme, formatEur, formatKm, formatRemaining, formatScheduledStart,
-  isAuctionLive, isAuctionEnded, isAuctionScheduled,
+  isAuctionLive, isAuctionEnded, isAuctionScheduled, thumb,
 } from "../lib/theme";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
@@ -89,7 +89,7 @@ export function VehicleCard({
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}>
       <View style={styles.imageWrap}>
         <Image
-          source={vehicle.photo_url ? { uri: vehicle.photo_url } : require("../../assets/icon.png")}
+          source={vehicle.photo_url ? { uri: thumb(vehicle.photo_url, 600) } : require("../../assets/icon.png")}
           style={styles.image}
           contentFit="cover"
           transition={150}
