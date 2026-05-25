@@ -30,6 +30,7 @@ export interface VehicleRow {
   seller_phone?: string | null;
   inspector_id?: string | null;
   inspection_date?: string | null;
+  inspection_notes?: string | null;
 }
 
 export interface AuctionRow {
@@ -62,6 +63,7 @@ export interface VehicleDamageRow {
   location: string;
   description: string;
   severity: "cosmetic" | "minor" | "moderate" | "major";
+  photo_url: string | null;
 }
 
 export interface BidRow {

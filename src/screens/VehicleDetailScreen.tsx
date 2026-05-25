@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View,
+  Dimensions, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -60,6 +60,7 @@ export function VehicleDetailScreen({
   const [loading, setLoading] = useState(true);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [shipping, setShipping] = useState<ShippingChoice>({ kind: "port", port: "Hamburg" });
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -69,7 +70,7 @@ export function VehicleDetailScreen({
         .select(`
           *,
           vehicle_photos (id, vehicle_id, url, sort_order, caption, category),
-          vehicle_damages (id, vehicle_id, location, description, severity),
+          vehicle_damages (id, vehicle_id, location, description, severity, photo_url),
           auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
         `)
         .eq("id", id)
@@ -238,31 +239,41 @@ export function VehicleDetailScreen({
             </Section>
           )}
 
-          {/* Condition report */}
+          {/* Condition report — tap anywhere to open the full inspection report */}
           <Section title={t("vehicle.condition")} icon="shield-checkmark-outline">
-            {vehicle.vehicle_damages.length === 0 ? (
-              <View style={styles.cleanReport}>
-                <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
-                <Text style={styles.cleanReportText}>{t("vehicle.noDamage")}</Text>
-              </View>
-            ) : (
-              <View style={{ gap: 10 }}>
-                {vehicle.vehicle_damages.map((d) => {
-                  const sev = SEVERITY_COLOR[d.severity] ?? SEVERITY_COLOR.cosmetic;
-                  return (
-                    <View key={d.id} style={[styles.damageRow, { borderLeftWidth: 4, borderLeftColor: sev.fg }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.damageLoc}>{d.location}</Text>
-                        <Text style={styles.damageDesc}>{d.description}</Text>
+            <Pressable onPress={() => setReportOpen(true)} style={({ pressed }) => pressed && { opacity: 0.9 }}>
+              {vehicle.vehicle_damages.length === 0 ? (
+                <View style={styles.cleanReport}>
+                  <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+                  <Text style={styles.cleanReportText}>{t("vehicle.noDamage")}</Text>
+                </View>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  {vehicle.vehicle_damages.map((d) => {
+                    const sev = SEVERITY_COLOR[d.severity] ?? SEVERITY_COLOR.cosmetic;
+                    return (
+                      <View key={d.id} style={[styles.damageRow, { borderLeftWidth: 4, borderLeftColor: sev.fg }]}>
+                        {d.photo_url ? (
+                          <Image source={{ uri: d.photo_url }} style={styles.damageThumb} contentFit="cover" />
+                        ) : null}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.damageLoc}>{d.location}</Text>
+                          <Text style={styles.damageDesc}>{d.description}</Text>
+                        </View>
+                        <View style={[styles.severityPill, { backgroundColor: sev.bg, borderColor: sev.border, borderWidth: 1 }]}>
+                          <Text style={[styles.severityText, { color: sev.fg }]}>{d.severity}</Text>
+                        </View>
                       </View>
-                      <View style={[styles.severityPill, { backgroundColor: sev.bg, borderColor: sev.border, borderWidth: 1 }]}>
-                        <Text style={[styles.severityText, { color: sev.fg }]}>{d.severity}</Text>
-                      </View>
-                    </View>
-                  );
-                })}
+                    );
+                  })}
+                </View>
+              )}
+              <View style={styles.viewReportRow}>
+                <Ionicons name="images-outline" size={16} color={theme.colors.brand} />
+                <Text style={styles.viewReportText}>View full inspection report</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.brand} />
               </View>
-            )}
+            </Pressable>
           </Section>
 
           {vehicle.description && (
@@ -343,7 +354,124 @@ export function VehicleDetailScreen({
           </View>
         </View>
       )}
+
+      <InspectionReportModal
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        vehicle={vehicle}
+        photos={photos}
+        damages={vehicle.vehicle_damages}
+      />
     </View>
+  );
+}
+
+function InspectionReportModal({
+  visible, onClose, vehicle, photos, damages,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  vehicle: VehicleFull;
+  photos: VehiclePhotoRow[];
+  damages: VehicleDamageRow[];
+}) {
+  const inspectedOn = vehicle.inspection_date
+    ? new Date(vehicle.inspection_date).toLocaleDateString("en-GB", {
+        weekday: "short", day: "numeric", month: "long", year: "numeric",
+      })
+    : "—";
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+        <View style={styles.reportHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.reportEyebrow}>Inspection report</Text>
+            <Text style={styles.reportTitle} numberOfLines={1}>
+              {vehicle.year} {vehicle.make} {vehicle.model}
+            </Text>
+          </View>
+          <Pressable onPress={onClose} hitSlop={10} style={styles.reportClose} accessibilityLabel="Close report">
+            <Ionicons name="close" size={22} color={theme.colors.text} />
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          {/* Meta */}
+          <View style={styles.reportMeta}>
+            <View style={styles.reportMetaRow}>
+              <Ionicons name="calendar-outline" size={16} color={theme.colors.brand} />
+              <Text style={styles.reportMetaLabel}>Inspected</Text>
+              <Text style={styles.reportMetaValue} numberOfLines={1}>{inspectedOn}</Text>
+            </View>
+            <View style={styles.reportMetaRow}>
+              <Ionicons name="shield-checkmark-outline" size={16} color={theme.colors.brand} />
+              <Text style={styles.reportMetaLabel}>Inspector</Text>
+              <Text style={styles.reportMetaValue} numberOfLines={1}>
+                {vehicle.inspector_id ? `XportACar · ${vehicle.inspector_id.slice(0, 8)}` : "XportACar field team"}
+              </Text>
+            </View>
+          </View>
+
+          {/* Inspector notes */}
+          {vehicle.inspection_notes ? (
+            <View style={styles.reportNotes}>
+              <Text style={styles.reportSectionTitle}>Inspector notes</Text>
+              <Text style={styles.reportNotesText}>{vehicle.inspection_notes}</Text>
+            </View>
+          ) : null}
+
+          {/* Photos */}
+          {photos.length > 0 && (
+            <View style={{ marginTop: 20 }}>
+              <Text style={styles.reportSectionTitle}>Photos ({photos.length})</Text>
+              <View style={styles.reportPhotoGrid}>
+                {photos.map((p) => (
+                  <Image key={p.id} source={{ uri: p.url }} style={styles.reportPhoto} contentFit="cover" />
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Damage detail */}
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.reportSectionTitle}>Condition &amp; damage ({damages.length})</Text>
+            {damages.length === 0 ? (
+              <View style={styles.cleanReport}>
+                <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+                <Text style={styles.cleanReportText}>No damage reported. Vehicle inspected and certified.</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {damages.map((d) => {
+                  const sev = SEVERITY_COLOR[d.severity] ?? SEVERITY_COLOR.cosmetic;
+                  return (
+                    <View key={d.id} style={styles.reportDamageCard}>
+                      {d.photo_url ? (
+                        <Image source={{ uri: d.photo_url }} style={styles.reportDamagePhoto} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.reportDamagePhoto, styles.reportDamageNoPhoto]}>
+                          <Ionicons name="image-outline" size={22} color={theme.colors.textLight} />
+                        </View>
+                      )}
+                      <View style={styles.reportDamageBody}>
+                        <View style={styles.reportDamageTop}>
+                          <Text style={styles.damageLoc}>{d.location}</Text>
+                          <View style={[styles.severityPill, { backgroundColor: sev.bg, borderColor: sev.border, borderWidth: 1 }]}>
+                            <Text style={[styles.severityText, { color: sev.fg }]}>{d.severity}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.damageDesc}>{d.description}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -468,6 +596,44 @@ const styles = StyleSheet.create({
   damageDesc: { color: theme.colors.textLight, fontSize: 12, marginTop: 2 },
   severityPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.full },
   severityText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  damageThumb: { width: 44, height: 44, borderRadius: 8, marginRight: 12, backgroundColor: theme.colors.bgAlt },
+
+  // "View full report" affordance under the condition preview
+  viewReportRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 12, paddingVertical: 12, paddingHorizontal: 14,
+    borderRadius: 12, backgroundColor: theme.colors.brandLight,
+    borderWidth: 1, borderColor: "#b2ddff",
+  },
+  viewReportText: { flex: 1, fontSize: 13, fontWeight: "800", color: theme.colors.brand },
+
+  // Full inspection report modal
+  reportHeader: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingTop: 54, paddingBottom: 14, paddingHorizontal: 16,
+    backgroundColor: theme.colors.white, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
+  reportEyebrow: { fontSize: 10, fontWeight: "800", color: theme.colors.textLight, letterSpacing: 1, textTransform: "uppercase" },
+  reportTitle:   { fontSize: 18, fontWeight: "800", color: theme.colors.text, marginTop: 2 },
+  reportClose:   { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bgAlt },
+  reportMeta:    { backgroundColor: theme.colors.white, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, padding: 14, gap: 10 },
+  reportMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  reportMetaLabel: { fontSize: 11, fontWeight: "800", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.4, width: 78 },
+  reportMetaValue: { flex: 1, fontSize: 13, fontWeight: "700", color: theme.colors.text },
+  reportNotes:   { marginTop: 16, backgroundColor: theme.colors.bgAlt, borderRadius: 12, padding: 14 },
+  reportSectionTitle: { fontSize: 14, fontWeight: "800", color: theme.colors.text, marginBottom: 10 },
+  reportNotesText: { fontSize: 13, lineHeight: 20, color: theme.colors.textMuted },
+  reportPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  reportPhoto:   { width: "48%", aspectRatio: 4 / 3, borderRadius: 10, backgroundColor: theme.colors.bgAlt },
+  reportDamageCard: {
+    flexDirection: "row", gap: 12, padding: 12,
+    backgroundColor: theme.colors.white, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  reportDamagePhoto:  { width: 72, height: 72, borderRadius: 10, backgroundColor: theme.colors.bgAlt },
+  reportDamageNoPhoto:{ alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.colors.border },
+  reportDamageBody:   { flex: 1 },
+  reportDamageTop:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 },
 
   bodyText: { fontSize: 14, lineHeight: 22, color: theme.colors.textMuted },
 

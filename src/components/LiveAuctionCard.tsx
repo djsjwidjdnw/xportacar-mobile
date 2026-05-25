@@ -58,6 +58,18 @@ export function LiveAuctionCard({
     return () => loop.stop();
   }, [urgent, pulse]);
 
+  // Heart tap → quick scale bounce (1.0 → 1.3 → 1.0 over 200ms) for tactile feedback.
+  const heartScale = useRef(new Animated.Value(1)).current;
+  const bounceHeart = () => {
+    heartScale.stopAnimation();
+    heartScale.setValue(1);
+    Animated.sequence([
+      Animated.timing(heartScale, { toValue: 1.3, duration: 100, useNativeDriver: true }),
+      Animated.timing(heartScale, { toValue: 1.0, duration: 100, useNativeDriver: true }),
+    ]).start();
+    onToggleWatch?.();
+  };
+
   return (
     <Pressable
       onPress={onPress}
@@ -84,16 +96,18 @@ export function LiveAuctionCard({
         ) : null}
         {onToggleWatch && (
           <Pressable
-            onPress={(e) => { e.stopPropagation(); onToggleWatch(); }}
+            onPress={(e) => { e.stopPropagation(); bounceHeart(); }}
             hitSlop={8}
             style={({ pressed }) => [styles.heartBtn, pressed && { opacity: 0.85 }]}
             accessibilityLabel={isWatching ? "Remove from watchlist" : "Add to watchlist"}
           >
-            <Ionicons
-              name={isWatching ? "heart" : "heart-outline"}
-              size={20}
-              color={isWatching ? theme.colors.error : theme.colors.textMuted}
-            />
+            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+              <Ionicons
+                name={isWatching ? "heart" : "heart-outline"}
+                size={20}
+                color={isWatching ? theme.colors.error : theme.colors.textMuted}
+              />
+            </Animated.View>
           </Pressable>
         )}
       </View>

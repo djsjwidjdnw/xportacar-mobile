@@ -1,6 +1,7 @@
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { LoginScreen as LoginScreenImpl } from "./screens/LoginScreen";
@@ -122,6 +123,9 @@ function ProfileStack() {
 
 function MainTabs() {
   const { t } = useTranslation();
+  // Lift the tab bar above the Android system nav / iOS home indicator.
+  // Without this the Watchlist + Profile tabs sit behind the OS buttons.
+  const insets = useSafeAreaInsets();
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -131,9 +135,9 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: theme.colors.white,
           borderTopColor: theme.colors.border,
-          height: 68,
+          height: 64 + insets.bottom,
           paddingTop: 8,
-          paddingBottom: 12,
+          paddingBottom: insets.bottom + 10,
         },
         tabBarLabelStyle: { fontWeight: "700", fontSize: 11, marginTop: 2 },
       }}
@@ -146,7 +150,7 @@ function MainTabs() {
       <Tabs.Screen
         name="MyBids"
         component={MyBidsStack}
-        options={{ tabBarLabel: t("nav.myBids"), tabBarIcon: makeTabIcon("flash-outline") }}
+        options={{ tabBarLabel: t("nav.myBids"), tabBarIcon: makeTabIcon("hammer-outline") }}
       />
       <Tabs.Screen
         name="Watchlist"

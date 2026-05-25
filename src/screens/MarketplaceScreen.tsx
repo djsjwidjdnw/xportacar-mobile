@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { VehicleCard, type VehicleListItem } from "../components/VehicleCard";
@@ -13,7 +13,7 @@ import {
   FilterBar, EMPTY_FILTERS, type VehicleFilters,
 } from "../components/FilterBar";
 import { supabase } from "../lib/supabase";
-import { theme, isAuctionLive } from "../lib/theme";
+import { theme, isAuctionLive, isAuctionEnded, isAuctionScheduled } from "../lib/theme";
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
@@ -41,6 +41,7 @@ function priceInBand(price: number, band: VehicleFilters["priceBand"]): boolean 
 export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const { ids: watchIds, toggle: toggleWatch } = useWatchlist(user?.id ?? null);
   const [items, setItems] = useState<VehicleListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,15 +120,24 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
     // Sort
     const sorted = [...result];
     switch (filters.sort) {
-      case "ending_soon":
+      case "ending_soon": {
+        // Tier by phase so ENDED auctions always sink to the very bottom:
+        //   live (ending soonest) → scheduled (starting soonest) → listed → ended
+        const rank = (v: VehicleListItem) =>
+          isAuctionLive(v.auction) ? 0
+          : isAuctionScheduled(v.auction) ? 1
+          : isAuctionEnded(v.auction) ? 3
+          : 2;
         sorted.sort((a, b) => {
-          const ae = a.auction?.end_time, be = b.auction?.end_time;
-          if (ae && be) return new Date(ae).getTime() - new Date(be).getTime();
-          if (ae) return -1;
-          if (be) return 1;
+          const ra = rank(a), rb = rank(b);
+          if (ra !== rb) return ra - rb;
+          if (ra === 0) return new Date(a.auction!.end_time).getTime() - new Date(b.auction!.end_time).getTime();
+          if (ra === 1) return new Date(a.auction!.start_time).getTime() - new Date(b.auction!.start_time).getTime();
+          if (ra === 3) return new Date(b.auction!.end_time).getTime() - new Date(a.auction!.end_time).getTime();
           return 0;
         });
         break;
+      }
       case "newest":
         // No created_at on type — use year desc then VIN as a stable tiebreaker.
         sorted.sort((a, b) => b.year - a.year || (a.vin ?? "").localeCompare(b.vin ?? ""));
@@ -155,35 +165,19 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      {/* Slim header bar — replaces the oversized hero so cards are visible
+          within one thumb scroll. */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <Text style={styles.topBarText} numberOfLines={1}>
+          Premium GCC Vehicles — {items.length} available, {liveItems.length} live
+        </Text>
+      </View>
       <FlatList
         data={filtered}
         keyExtractor={(v) => v.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32 }}
         ListHeaderComponent={
           <View>
-            {/* Hero banner — dark navy → brand blue gradient */}
-            <LinearGradient
-              colors={["#101828", theme.colors.brand]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.hero}
-            >
-              <Text style={styles.heroEyebrow}>{t("marketplace.heroEyebrow")}</Text>
-              <Text style={styles.heroTitle}>{t("marketplace.heroTitle")}</Text>
-              <Text style={styles.heroSubtitle}>{t("marketplace.heroSub")}</Text>
-              <View style={styles.heroStats}>
-                <View>
-                  <Text style={styles.heroStatNum}>{items.length}</Text>
-                  <Text style={styles.heroStatLabel}>{t("marketplace.heroVehicles")}</Text>
-                </View>
-                <View style={styles.heroDivider} />
-                <View>
-                  <Text style={styles.heroStatNum}>{liveItems.length}</Text>
-                  <Text style={styles.heroStatLabel}>{t("marketplace.heroLiveNow")}</Text>
-                </View>
-              </View>
-            </LinearGradient>
-
             {/* Search */}
             <View style={styles.searchWrap}>
               <Ionicons name="search-outline" size={18} color={theme.colors.textLight} style={{ marginRight: 8 }} />
@@ -317,17 +311,15 @@ function SegPill({
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    marginTop: 16, padding: 24, borderRadius: 20, marginBottom: 16,
-    shadowColor: theme.colors.brand, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4,
+  // Slim one-line header bar (≤50px of visible blue below the status bar).
+  topBar: {
+    backgroundColor: theme.colors.brand,
+    paddingHorizontal: 16, paddingBottom: 12,
   },
-  heroEyebrow:  { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "800", letterSpacing: 1.2 },
-  heroTitle:    { color: theme.colors.white, fontSize: 26, fontWeight: "800", marginTop: 6 },
-  heroSubtitle: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 4, lineHeight: 18 },
-  heroStats:    { flexDirection: "row", alignItems: "center", marginTop: 18 },
-  heroStatNum:  { color: theme.colors.white, fontSize: 22, fontWeight: "800" },
-  heroStatLabel:{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  heroDivider:  { width: 1, height: 30, backgroundColor: "rgba(255,255,255,0.2)", marginHorizontal: 20 },
+  topBarText: {
+    color: theme.colors.white, fontSize: 13, fontWeight: "800",
+    letterSpacing: 0.2, textAlign: "center",
+  },
 
   searchWrap: {
     flexDirection: "row", alignItems: "center",
