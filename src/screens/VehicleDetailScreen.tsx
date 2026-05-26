@@ -141,8 +141,11 @@ export function VehicleDetailScreen({
     return () => { on = false; };
   }, [vehicle]);
   const mvPos = valuation ? pricePosition(priceEur, valuation) : "unknown";
-  const mvPct = valuation ? Math.min(96, Math.max(4, ((priceEur - valuation.minEur) / Math.max(1, valuation.maxEur - valuation.minEur)) * 100)) : 0;
+  // Cap the marker at the bar edges: above max → right edge, below min → left edge.
+  const mvPct = valuation ? Math.min(100, Math.max(0, ((priceEur - valuation.minEur) / Math.max(1, valuation.maxEur - valuation.minEur)) * 100)) : 0;
   const mvColor = mvPos === "fair" ? theme.colors.success : mvPos === "below" ? theme.colors.warning : mvPos === "above" ? theme.colors.error : theme.colors.textMuted;
+  const mvLabel = mvPos === "fair" ? "Fair" : mvPos === "below" ? "Below market" : mvPos === "above" ? "Above market" : "";
+  const mvLabelColor = mvPos === "below" ? "#b54708" : mvPos === "above" ? theme.colors.error : theme.colors.success;
 
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
   const userWonThis = !!(ended && user && auction && auction.winner_id === user.id);
@@ -227,9 +230,24 @@ export function VehicleDetailScreen({
           {valuation && (
             <Section title="Market value" icon="trending-up-outline">
               <View style={styles.mvCard}>
-                <Text style={styles.mvAvg}>{format(valuation.avgEur)}</Text>
-                <Text style={styles.mvAvgLabel}>average market value</Text>
+                <View style={styles.mvHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mvAvg}>{format(valuation.avgEur)}</Text>
+                    <Text style={styles.mvAvgLabel}>average market value</Text>
+                  </View>
+                  {mvLabel ? (
+                    <View style={[styles.mvPill, { backgroundColor: `${mvLabelColor}1A`, borderColor: `${mvLabelColor}40` }]}>
+                      <Text style={[styles.mvPillText, { color: mvLabelColor }]}>{mvLabel}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                {/* Gradient track: green (min) → yellow (avg) → red (max) */}
                 <View style={styles.mvTrack}>
+                  <LinearGradient
+                    colors={[theme.colors.success, theme.colors.warning, theme.colors.error]}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                    style={styles.mvTrackFill}
+                  />
                   <View style={[styles.mvMarker, { left: `${mvPct}%`, backgroundColor: mvColor }]} />
                 </View>
                 <View style={styles.mvRow}>
@@ -606,10 +624,14 @@ const styles = StyleSheet.create({
 
   // Market value bar
   mvCard: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border },
+  mvHeader: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   mvAvg: { fontSize: 22, fontWeight: "800", color: theme.colors.text },
   mvAvgLabel: { fontSize: 11, color: theme.colors.textLight, fontWeight: "600", marginTop: 1 },
-  mvTrack: { height: 8, borderRadius: 4, backgroundColor: theme.colors.bgAlt, marginTop: 16, marginBottom: 14, position: "relative" },
-  mvMarker: { position: "absolute", top: -3, width: 14, height: 14, borderRadius: 7, marginLeft: -7, borderWidth: 2, borderColor: theme.colors.white },
+  mvPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: theme.radius.full, borderWidth: 1 },
+  mvPillText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  mvTrack: { height: 10, borderRadius: 5, backgroundColor: theme.colors.bgAlt, marginTop: 16, marginBottom: 16, position: "relative" },
+  mvTrackFill: { ...StyleSheet.absoluteFillObject, borderRadius: 5 },
+  mvMarker: { position: "absolute", top: -3, width: 16, height: 16, borderRadius: 8, marginLeft: -8, borderWidth: 2, borderColor: theme.colors.white },
   mvRow: { flexDirection: "row", justifyContent: "space-between" },
   mvMinMax: { fontSize: 11, fontWeight: "700", color: theme.colors.textMuted },
   mvNote: { fontSize: 11, color: theme.colors.textLight, marginTop: 10 },
