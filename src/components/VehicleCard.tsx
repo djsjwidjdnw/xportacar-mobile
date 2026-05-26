@@ -6,6 +6,7 @@ import {
   theme, formatEur, formatKm, formatRemaining, formatScheduledStart,
   isAuctionLive, isAuctionEnded, isAuctionScheduled, thumb,
 } from "../lib/theme";
+import { estimateValuation } from "../lib/valuation";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export interface VehicleListItem extends VehicleRow {
@@ -48,6 +49,9 @@ export function VehicleCard({
       ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
       : vehicle.listed_price_eur;
   const cta = ctaFor(vehicle.auction);
+  const marketAvg = estimateValuation({
+    make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km,
+  }).avgEur;
 
   // Pulsing green dot on live cards.
   const pulse = useRef(new Animated.Value(1)).current;
@@ -174,6 +178,7 @@ export function VehicleCard({
             <Text style={styles.price}>
               {formatEur(scheduled ? vehicle.auction?.starting_price_eur : price)}
             </Text>
+            <Text style={styles.marketLine}>Market {formatEur(marketAvg)}</Text>
           </View>
           {vehicle.auction && live && !ended && (
             <Text style={styles.bidsSub}>
@@ -296,6 +301,7 @@ const styles = StyleSheet.create({
   priceRow:  { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.border, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
   priceLabel:{ fontSize: 10, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   price:     { fontSize: 20, fontWeight: "800", color: theme.colors.brand, marginTop: 2 },
+  marketLine:{ fontSize: 10, color: theme.colors.textLight, fontWeight: "600", marginTop: 2 },
   bidsSub:   { fontSize: 11, color: theme.colors.textLight, fontWeight: "600" },
   scheduleHint: {
     flexDirection: "row", alignItems: "center", gap: 4,

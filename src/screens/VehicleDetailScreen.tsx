@@ -11,6 +11,8 @@ import { CurrencyPills } from "../components/CurrencyPills";
 import {
   ShippingOptions, type ShippingChoice, describeShipping, getShippingPriceEur,
 } from "../components/ShippingOptions";
+import { getShippingRates, FALLBACK_RATES, type ShippingRate } from "../lib/shipping";
+import { estimateValuation, pricePosition, type Valuation } from "../lib/valuation";
 import { supabase } from "../lib/supabase";
 import {
   theme, formatKm, formatRemaining, formatScheduledStartLong,
@@ -61,6 +63,8 @@ export function VehicleDetailScreen({
   const [photoIndex, setPhotoIndex] = useState(0);
   const [shipping, setShipping] = useState<ShippingChoice>({ kind: "port", port: "Hamburg" });
   const [reportOpen, setReportOpen] = useState(false);
+  const [shipRates, setShipRates] = useState<ShippingRate[]>(FALLBACK_RATES);
+  useEffect(() => { let on = true; getShippingRates().then((r) => { if (on) setShipRates(r); }); return () => { on = false; }; }, []);
 
   useEffect(() => {
     (async () => {
@@ -122,8 +126,17 @@ export function VehicleDetailScreen({
         ? (auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0)
         : (vehicle?.listed_price_eur ?? 0);
 
-  const shippingEur = getShippingPriceEur(shipping);
+  const shippingEur = getShippingPriceEur(shipping, shipRates);
   const totalEur = priceEur + shippingEur;
+
+  // Market valuation (currency-aware via format()).
+  const valuation = useMemo<Valuation | null>(
+    () => (vehicle ? estimateValuation({ make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km }) : null),
+    [vehicle],
+  );
+  const mvPos = valuation ? pricePosition(priceEur, valuation) : "unknown";
+  const mvPct = valuation ? Math.min(96, Math.max(4, ((priceEur - valuation.minEur) / Math.max(1, valuation.maxEur - valuation.minEur)) * 100)) : 0;
+  const mvColor = mvPos === "fair" ? theme.colors.success : mvPos === "below" ? theme.colors.warning : mvPos === "above" ? theme.colors.error : theme.colors.textMuted;
 
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
   const userWonThis = !!(ended && user && auction && auction.winner_id === user.id);
@@ -204,10 +217,32 @@ export function VehicleDetailScreen({
             </View>
           </Section>
 
+          {/* Market value */}
+          {valuation && (
+            <Section title="Market value" icon="trending-up-outline">
+              <View style={styles.mvCard}>
+                <Text style={styles.mvAvg}>{format(valuation.avgEur)}</Text>
+                <Text style={styles.mvAvgLabel}>average market value</Text>
+                <View style={styles.mvTrack}>
+                  <View style={[styles.mvMarker, { left: `${mvPct}%`, backgroundColor: mvColor }]} />
+                </View>
+                <View style={styles.mvRow}>
+                  <Text style={styles.mvMinMax}>Min {format(valuation.minEur)}</Text>
+                  <Text style={styles.mvMinMax}>Max {format(valuation.maxEur)}</Text>
+                </View>
+                <Text style={styles.mvNote}>
+                  {valuation.source === "market_data"
+                    ? `Based on ${valuation.dataPoints} comparable listings across EU markets`
+                    : "Estimated market value"}
+                </Text>
+              </View>
+            </Section>
+          )}
+
           {/* Shipping options selector */}
           <Section title={t("vehicle.shipping")} icon="boat-outline">
             <Text style={styles.shipSub}>{t("vehicle.shippingChoose")}</Text>
-            <ShippingOptions value={shipping} onChange={setShipping} />
+            <ShippingOptions value={shipping} onChange={setShipping} rates={shipRates} />
 
             {/* Live total estimate */}
             <View style={styles.totalCard}>
@@ -562,6 +597,16 @@ const styles = StyleSheet.create({
 
   // Shipping
   shipSub: { fontSize: 12, color: theme.colors.textLight, marginTop: -6, marginBottom: 12 },
+
+  // Market value bar
+  mvCard: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border },
+  mvAvg: { fontSize: 22, fontWeight: "800", color: theme.colors.text },
+  mvAvgLabel: { fontSize: 11, color: theme.colors.textLight, fontWeight: "600", marginTop: 1 },
+  mvTrack: { height: 8, borderRadius: 4, backgroundColor: theme.colors.bgAlt, marginTop: 16, marginBottom: 14, position: "relative" },
+  mvMarker: { position: "absolute", top: -3, width: 14, height: 14, borderRadius: 7, marginLeft: -7, borderWidth: 2, borderColor: theme.colors.white },
+  mvRow: { flexDirection: "row", justifyContent: "space-between" },
+  mvMinMax: { fontSize: 11, fontWeight: "700", color: theme.colors.textMuted },
+  mvNote: { fontSize: 11, color: theme.colors.textLight, marginTop: 10 },
   totalCard: {
     flexDirection: "row", alignItems: "center", gap: 12,
     marginTop: 14, padding: 14, borderRadius: 14,
