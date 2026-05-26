@@ -12,7 +12,7 @@ import {
   ShippingOptions, type ShippingChoice, describeShipping, getShippingPriceEur,
 } from "../components/ShippingOptions";
 import { getShippingRates, FALLBACK_RATES, type ShippingRate } from "../lib/shipping";
-import { estimateValuation, pricePosition, type Valuation } from "../lib/valuation";
+import { estimateValuation, getMarketValuation, pricePosition, type Valuation } from "../lib/valuation";
 import { supabase } from "../lib/supabase";
 import {
   theme, formatKm, formatRemaining, formatScheduledStartLong,
@@ -129,11 +129,17 @@ export function VehicleDetailScreen({
   const shippingEur = getShippingPriceEur(shipping, shipRates);
   const totalEur = priceEur + shippingEur;
 
-  // Market valuation (currency-aware via format()).
-  const valuation = useMemo<Valuation | null>(
-    () => (vehicle ? estimateValuation({ make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km }) : null),
-    [vehicle],
-  );
+  // Market valuation (currency-aware via format()). Seed with the instant
+  // reference-table estimate, then upgrade to live market data when it arrives.
+  const [valuation, setValuation] = useState<Valuation | null>(null);
+  useEffect(() => {
+    if (!vehicle) { setValuation(null); return; }
+    const input = { make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km };
+    setValuation(estimateValuation(input));
+    let on = true;
+    getMarketValuation(input).then((v) => { if (on) setValuation(v); });
+    return () => { on = false; };
+  }, [vehicle]);
   const mvPos = valuation ? pricePosition(priceEur, valuation) : "unknown";
   const mvPct = valuation ? Math.min(96, Math.max(4, ((priceEur - valuation.minEur) / Math.max(1, valuation.maxEur - valuation.minEur)) * 100)) : 0;
   const mvColor = mvPos === "fair" ? theme.colors.success : mvPos === "below" ? theme.colors.warning : mvPos === "above" ? theme.colors.error : theme.colors.textMuted;
