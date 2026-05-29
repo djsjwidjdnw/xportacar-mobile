@@ -67,6 +67,21 @@ interface InvoiceRow {
 
 interface ProofFile { uri: string; name: string; mimeType: string; size: number }
 
+const PROOF_ALLOWED_EXT = /\.(pdf|png|jpe?g)$/i;
+const PROOF_ALLOWED_MIME = ["application/pdf", "image/png", "image/jpeg"];
+
+// The payment-proofs bucket only allows pdf/png/jpeg — normalise the type so
+// uploads aren't rejected when the picker reports "" or image/jpg.
+function proofContentType(f: ProofFile): string {
+  const t = (f.mimeType || "").toLowerCase();
+  if (t === "application/pdf" || t === "image/png" || t === "image/jpeg") return t;
+  if (t === "image/jpg") return "image/jpeg";
+  const ext = f.name.toLowerCase().split(".").pop();
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "png") return "image/png";
+  return "image/jpeg";
+}
+
 export function AuctionWonScreen({
   route, navigation,
 }: {
@@ -139,6 +154,9 @@ export function AuctionWonScreen({
   };
 
   const addProof = (f: ProofFile) => {
+    if (!PROOF_ALLOWED_EXT.test(f.name) && !PROOF_ALLOWED_MIME.includes((f.mimeType || "").toLowerCase())) {
+      Alert.alert("Unsupported file", `${f.name}: only PDF, PNG and JPG are allowed.`); return;
+    }
     if (f.size && f.size > MAX_BYTES) { Alert.alert("File too large", `${f.name} is larger than 10MB.`); return; }
     setProofFiles((arr) => (arr.length >= MAX_FILES ? arr : [...arr, f]));
   };
@@ -148,16 +166,19 @@ export function AuctionWonScreen({
     if (proofFiles.length === 0) { Alert.alert("Attach proof", "Add at least one payment proof file."); return; }
     setSubmitting(true);
     try {
-      const uploaded: { url: string; filename: string; uploaded_at: string }[] = [];
+      // Private "payment-proofs" bucket. Path = {invoice_id}/{file} so the
+      // bucket RLS lets the owning buyer upload to their invoice folder.
+      // Store the storage KEY (path), not a public URL — admins read via
+      // 7-day signed URLs (matches the web app).
+      const uploaded: { path: string; filename: string; uploaded_at: string }[] = [];
       for (const f of proofFiles) {
         const safe = f.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-        const key = `invoices/${invoice.id}/payment_proof/${Date.now()}-${safe}`;
+        const key = `${invoice.id}/${Date.now()}-${safe}`;
         const blob = await (await fetch(f.uri)).blob();
-        const { error: upErr } = await supabase.storage.from("vehicle-photos")
-          .upload(key, blob, { contentType: f.mimeType || blob.type || "application/octet-stream", upsert: false });
+        const { error: upErr } = await supabase.storage.from("payment-proofs")
+          .upload(key, blob, { contentType: proofContentType(f), upsert: false });
         if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from("vehicle-photos").getPublicUrl(key);
-        uploaded.push({ url: pub.publicUrl, filename: f.name, uploaded_at: new Date().toISOString() });
+        uploaded.push({ path: key, filename: f.name, uploaded_at: new Date().toISOString() });
       }
       const { error } = await supabase.rpc("submit_payment_proof", {
         p_invoice_id: invoice.id, p_urls: uploaded, p_note: proofNote,
