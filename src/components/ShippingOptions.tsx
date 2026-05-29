@@ -4,13 +4,15 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { theme } from "../lib/theme";
 import { useCurrency } from "../lib/currency";
+import { CustomsDisclaimer } from "./CustomsDisclaimer";
 import {
   getShippingRates, portRoutes, serviceRate, getShippingPriceEur, describeShipping,
+  describeMethod, getMethodPriceEur, tuvPriceEur,
   FALLBACK_RATES, type ShippingChoice, type ShippingRate,
 } from "../lib/shipping";
 
-// Re-export so VehicleDetailScreen keeps importing from here.
-export { getShippingPriceEur, describeShipping };
+// Re-export so other screens keep importing from here.
+export { getShippingPriceEur, describeShipping, describeMethod, getMethodPriceEur, tuvPriceEur };
 export type { ShippingChoice, ShippingRate };
 
 const PORT_COUNTRY: Record<string, string> = {
@@ -40,11 +42,14 @@ export function ShippingOptions({
   const doorPrice = serviceRate(rates, "door_to_door_eu")?.base_price_eur ?? 800;
   const tuvPrice = serviceRate(rates, "service_tuv")?.base_price_eur ?? 750;
 
+  const setMethod = (method: ShippingChoice["method"]) => onChange({ ...value, method });
+
   return (
     <View style={{ gap: 12 }}>
+      <Text style={styles.sectionEyebrow}>Delivery method</Text>
       <Row
-        active={value.kind === "warehouse"}
-        onPress={() => onChange({ kind: "warehouse" })}
+        active={value.method.kind === "warehouse"}
+        onPress={() => setMethod({ kind: "warehouse" })}
         icon="cube-outline"
         title="Warehouse Pickup (Dubai)"
         subtitle="Free · available immediately after payment"
@@ -57,12 +62,12 @@ export function ShippingOptions({
           <Text style={styles.groupTitle}>Nearest Port Delivery</Text>
         </View>
         {roro.map((p, idx) => {
-          const active = value.kind === "port" && value.port === p.destination_port;
+          const active = value.method.kind === "port" && value.method.port === p.destination_port;
           const country = PORT_COUNTRY[p.destination_port ?? ""] ?? "";
           return (
             <Pressable
               key={p.route_key}
-              onPress={() => onChange({ kind: "port", port: p.destination_port! })}
+              onPress={() => setMethod({ kind: "port", port: p.destination_port! })}
               style={({ pressed }) => [styles.subRow, idx === roro.length - 1 && { borderBottomWidth: 0 }, pressed && { opacity: 0.95 }]}
             >
               <View style={[styles.radio, active && styles.radioActive]}>{active && <View style={styles.radioInner} />}</View>
@@ -77,8 +82,8 @@ export function ShippingOptions({
       </View>
 
       <Row
-        active={value.kind === "door"}
-        onPress={() => onChange({ kind: "door" })}
+        active={value.method.kind === "door"}
+        onPress={() => setMethod({ kind: "door" })}
         icon="home-outline"
         title="Door-to-Door Delivery"
         subtitle="Added on top of the port rate · 30–45 days"
@@ -86,15 +91,31 @@ export function ShippingOptions({
         priceValue={format(doorPrice)}
       />
 
-      <Row
-        active={value.kind === "tuv"}
-        onPress={() => onChange({ kind: "tuv" })}
-        icon="document-text-outline"
-        title="German TÜV / Papers Service"
-        subtitle="Inspection for DE registration, CoC, customs paperwork"
-        priceLabel="+ Add"
-        priceValue={format(tuvPrice)}
-      />
+      <Text style={styles.sectionEyebrow}>Add-on service</Text>
+      {/* TÜV is an additive checkbox — combinable with ANY delivery method. */}
+      <Pressable
+        onPress={() => onChange({ ...value, tuv: !value.tuv })}
+        style={({ pressed }) => [styles.row, value.tuv && styles.rowActive, pressed && { opacity: 0.95 }]}
+      >
+        <View style={styles.leftBlock}>
+          <View style={[styles.checkbox, value.tuv && styles.checkboxActive]}>
+            {value.tuv && <Ionicons name="checkmark" size={13} color={theme.colors.white} />}
+          </View>
+          <View style={[styles.iconWrap, value.tuv && styles.iconWrapActive]}>
+            <Ionicons name="document-text-outline" size={16} color={value.tuv ? theme.colors.white : theme.colors.brand} />
+          </View>
+        </View>
+        <View style={styles.textBlock}>
+          <Text style={styles.title} numberOfLines={2}>German TÜV / Papers Service</Text>
+          <Text style={styles.subtitle} numberOfLines={2}>Inspection for DE registration, CoC, customs paperwork</Text>
+        </View>
+        <View style={styles.priceBlock}>
+          <Text style={styles.priceCaption} numberOfLines={1}>+ Add</Text>
+          <Text style={styles.priceValue} numberOfLines={1}>{format(tuvPrice)}</Text>
+        </View>
+      </Pressable>
+
+      <CustomsDisclaimer />
     </View>
   );
 }
@@ -144,6 +165,9 @@ const styles = StyleSheet.create({
   priceBlock: { alignItems: "flex-end", minWidth: 70, marginLeft: 4 },
   radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.white },
   radioActive: { borderColor: theme.colors.brand },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.white },
+  checkboxActive: { borderColor: theme.colors.brand, backgroundColor: theme.colors.brand },
+  sectionEyebrow: { fontSize: 11, fontWeight: "800", color: theme.colors.textLight, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 },
   radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.brand },
   iconWrap: { width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.brandLight, alignItems: "center", justifyContent: "center" },
   iconWrapActive: { backgroundColor: theme.colors.brand },

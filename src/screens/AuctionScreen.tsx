@@ -45,15 +45,22 @@ export function AuctionScreen({
   const [auction, setAuction] = useState<AuctionFull | null>(null);
   const [bids, setBids] = useState<BidRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [amount, setAmount] = useState(0);
+  // Bid amounts are held as STRINGS so the field can be cleared while typing
+  // (a numeric value snaps an empty field back to "0" — the "can't delete the
+  // zero" bug). Coerce to a number on use/submit.
+  const [amountStr, setAmountStr] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [buyOpen, setBuyOpen] = useState(false);
   const [_tick, setTick] = useState(0);
+  const didInitBid = useRef(false);
 
   // Proxy / "up to" bidding state. proxyMax stays in EUR (the schema column
   // is proxy_max_eur), but the UI shows it through the currency formatter.
   const [proxyOn, setProxyOn] = useState(false);
-  const [proxyMax, setProxyMax] = useState<number>(0);
+  const [proxyMaxStr, setProxyMaxStr] = useState("");
+
+  const amount = Number(amountStr);
+  const proxyMax = Number(proxyMaxStr);
 
   useEffect(() => {
     if (autoBuyNow && auction?.buy_now_price_eur && auction.status === "active") {
@@ -98,10 +105,21 @@ export function AuctionScreen({
   const currentBid = auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0;
   const minNext = currentBid + bidIncrement(currentBid);
 
+  // Pre-fill the minimum bid ONCE when the auction first loads…
   useEffect(() => {
-    if (amount < minNext) setAmount(minNext);
-    if (proxyMax < minNext + 5_000) setProxyMax(minNext + 5_000);
-  }, [minNext, amount, proxyMax]);
+    if (!didInitBid.current && auction && minNext > 0) {
+      didInitBid.current = true;
+      setAmountStr(String(minNext));
+      setProxyMaxStr(String(minNext + 5_000));
+    }
+  }, [auction, minNext]);
+
+  // …and keep a NON-empty value legal if a live bid raises the minimum, but
+  // never clobber an empty field the user is mid-edit on.
+  useEffect(() => {
+    setAmountStr((s) => (s !== "" && Number(s) < minNext ? String(minNext) : s));
+    setProxyMaxStr((s) => (s !== "" && Number(s) < minNext + 1_000 ? String(minNext + 5_000) : s));
+  }, [minNext]);
 
   const ended = useMemo(() =>
     !auction || auction.status !== "active" || new Date(auction.end_time).getTime() <= Date.now(),
@@ -228,20 +246,20 @@ export function AuctionScreen({
           <Text style={styles.minHint}>{t("auction.minBid", { price: format(minNext) })}</Text>
           <View style={styles.stepRow}>
             <Pressable
-              onPress={() => setAmount((a) => Math.max(minNext, a - bidIncrement(a)))}
+              onPress={() => setAmountStr((s) => { const b = Number(s) || minNext; return String(Math.max(minNext, b - bidIncrement(b))); })}
               style={styles.stepBtn} disabled={ended || submitting}
             >
               <Ionicons name="remove" size={22} color={theme.colors.text} />
             </Pressable>
             <TextInput
-              value={String(amount)}
-              onChangeText={(v) => setAmount(Math.max(0, Number(v.replace(/[^0-9]/g, "") || 0)))}
+              value={amountStr}
+              onChangeText={(v) => setAmountStr(v.replace(/[^0-9]/g, ""))}
               keyboardType="numeric"
               style={styles.bidInput}
               editable={!ended && !submitting}
             />
             <Pressable
-              onPress={() => setAmount((a) => a + bidIncrement(a))}
+              onPress={() => setAmountStr((s) => { const b = Number(s) || minNext; return String(b + bidIncrement(b)); })}
               style={styles.stepBtn} disabled={ended || submitting}
             >
               <Ionicons name="add" size={22} color={theme.colors.text} />
@@ -268,21 +286,21 @@ export function AuctionScreen({
                 <>
                   <View style={styles.proxyInputRow}>
                     <Pressable
-                      onPress={() => setProxyMax((p) => Math.max(amount, p - 500))}
+                      onPress={() => setProxyMaxStr((s) => String(Math.max(amount, (Number(s) || amount) - 500)))}
                       style={styles.proxyStep}
                       disabled={submitting}
                     >
                       <Ionicons name="remove" size={18} color={theme.colors.text} />
                     </Pressable>
                     <TextInput
-                      value={String(proxyMax)}
-                      onChangeText={(v) => setProxyMax(Math.max(0, Number(v.replace(/[^0-9]/g, "") || 0)))}
+                      value={proxyMaxStr}
+                      onChangeText={(v) => setProxyMaxStr(v.replace(/[^0-9]/g, ""))}
                       keyboardType="numeric"
                       style={styles.proxyInput}
                       editable={!submitting}
                     />
                     <Pressable
-                      onPress={() => setProxyMax((p) => p + 500)}
+                      onPress={() => setProxyMaxStr((s) => String((Number(s) || amount) + 500))}
                       style={styles.proxyStep}
                       disabled={submitting}
                     >

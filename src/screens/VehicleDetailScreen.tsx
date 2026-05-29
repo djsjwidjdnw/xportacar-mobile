@@ -61,8 +61,9 @@ export function VehicleDetailScreen({
   const [auction, setAuction] = useState<AuctionRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [photoIndex, setPhotoIndex] = useState(0);
-  const [shipping, setShipping] = useState<ShippingChoice>({ kind: "port", port: "Hamburg" });
+  const [shipping, setShipping] = useState<ShippingChoice>({ method: { kind: "port", port: "Hamburg" }, tuv: false });
   const [reportOpen, setReportOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [shipRates, setShipRates] = useState<ShippingRate[]>(FALLBACK_RATES);
   useEffect(() => { let on = true; getShippingRates().then((r) => { if (on) setShipRates(r); }); return () => { on = false; }; }, []);
 
@@ -169,8 +170,10 @@ export function VehicleDetailScreen({
             keyExtractor={(p) => p.id}
             horizontal pagingEnabled showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(e) => setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
-            renderItem={({ item }) => (
-              <Image source={{ uri: item.url }} style={{ width, height: width * 0.72 }} contentFit="cover" />
+            renderItem={({ item, index }) => (
+              <Pressable onPress={() => setLightboxIndex(index)}>
+                <Image source={{ uri: item.url }} style={{ width, height: width * 0.72 }} contentFit="cover" />
+              </Pressable>
             )}
           />
           <View style={styles.dotRow}>
@@ -421,6 +424,27 @@ export function VehicleDetailScreen({
         photos={photos}
         damages={vehicle.vehicle_damages}
       />
+
+      {/* Photo lightbox — centred, dark backdrop, tap anywhere to close */}
+      <Modal
+        visible={lightboxIndex !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLightboxIndex(null)}
+      >
+        <Pressable style={styles.lightboxBackdrop} onPress={() => setLightboxIndex(null)}>
+          {lightboxIndex !== null && photos[lightboxIndex] && (
+            <Image
+              source={{ uri: photos[lightboxIndex].url }}
+              style={styles.lightboxImage}
+              contentFit="contain"
+            />
+          )}
+          <Pressable style={styles.lightboxClose} onPress={() => setLightboxIndex(null)}>
+            <Ionicons name="close" size={26} color={theme.colors.white} />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -573,6 +597,11 @@ function Spec({
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  // Photo lightbox
+  lightboxBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
+  lightboxImage: { width: "100%", height: "80%" },
+  lightboxClose: { position: "absolute", top: 48, right: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
 
   // Carousel
   dotRow: { flexDirection: "row", justifyContent: "center", gap: 4, position: "absolute", bottom: 14, alignSelf: "center" },

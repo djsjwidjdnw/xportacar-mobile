@@ -1,18 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Pressable, ScrollView, Share, StyleSheet, Text, View,
+  Alert, Pressable, ScrollView, Share, StyleSheet, Text, View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Spinner } from "../components/Spinner";
 import { CurrencyPills } from "../components/CurrencyPills";
+import { CustomsDisclaimer } from "../components/CustomsDisclaimer";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { useCurrency } from "../lib/currency";
 import { useAuth } from "../lib/auth";
 import {
-  describeShipping, getShippingPriceEur, type ShippingChoice,
+  describeMethod, getMethodPriceEur, tuvPriceEur, type ShippingChoice,
 } from "../components/ShippingOptions";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
@@ -51,7 +52,16 @@ function formatCountdownToDeadline(deadline: Date, now: Date): string {
   return `${mins}m remaining`;
 }
 
-const PLATFORM_FEE_PCT = 0.05;
+const PLATFORM_FEE_PCT = 0.029;
+const CONFIRM_WINDOW_HOURS = 36;
+const PAYMENT_WORKING_DAYS = 5;
+
+interface InvoiceRow {
+  id: string;
+  created_at: string;
+  payment_confirmed_at: string | null;
+  status: string;
+}
 
 export function AuctionWonScreen({
   route, navigation,
@@ -63,9 +73,22 @@ export function AuctionWonScreen({
   const { user } = useAuth();
   const { format } = useCurrency();
   const [auction, setAuction] = useState<AuctionFull | null>(null);
+  const [invoice, setInvoice] = useState<InvoiceRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState(false);
   const [now, setNow] = useState(new Date());
-  const [shipping] = useState<ShippingChoice>(shippingParam ?? { kind: "port", port: "Hamburg" });
+  const [shipping] = useState<ShippingChoice>(shippingParam ?? { method: { kind: "port", port: "Hamburg" }, tuv: false });
+
+  const loadInvoice = async () => {
+    if (!user) return;
+    const { data: inv } = await supabase
+      .from("invoices")
+      .select("id, created_at, payment_confirmed_at, status")
+      .eq("auction_id", id)
+      .eq("buyer_id", user.id)
+      .maybeSingle();
+    setInvoice((inv as InvoiceRow) ?? null);
+  };
 
   useEffect(() => {
     (async () => {
@@ -75,9 +98,11 @@ export function AuctionWonScreen({
         .eq("id", id)
         .single();
       setAuction((data as AuctionFull) ?? null);
+      await loadInvoice();
       setLoading(false);
     })();
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user]);
 
   // Tick the countdown every minute (no need for second-level precision here).
   useEffect(() => {
@@ -85,7 +110,14 @@ export function AuctionWonScreen({
     return () => clearInterval(i);
   }, []);
 
-  const deadline = useMemo(() => addWorkingDays(new Date(), 5), []);
+  const confirmPayment = async () => {
+    if (!invoice) return;
+    setConfirming(true);
+    const { error } = await supabase.rpc("confirm_invoice_payment", { p_invoice_id: invoice.id });
+    setConfirming(false);
+    if (error) { Alert.alert("Couldn't confirm", error.message); return; }
+    await loadInvoice();
+  };
 
   if (loading) return <Spinner label="Loading your invoice…" />;
   if (!auction || !auction.vehicle) {
@@ -94,11 +126,18 @@ export function AuctionWonScreen({
 
   const hammerEur = auction.current_bid_eur ?? auction.starting_price_eur ?? 0;
   const feeEur = hammerEur * PLATFORM_FEE_PCT;
-  const shippingEur = getShippingPriceEur(shipping);
-  const totalEur = hammerEur + feeEur + shippingEur;
+  const methodEur = getMethodPriceEur(shipping.method);
+  const tuvEur = shipping.tuv ? tuvPriceEur() : 0;
+  const totalEur = hammerEur + feeEur + methodEur + tuvEur;
 
   const v = auction.vehicle;
   const isWinner = !!user && auction.winner_id === user.id;
+
+  const confirmed = !!invoice?.payment_confirmed_at;
+  const createdAt = invoice?.created_at ? new Date(invoice.created_at) : new Date();
+  const confirmDeadline = new Date(createdAt.getTime() + CONFIRM_WINDOW_HOURS * 3600_000);
+  const payDeadline = addWorkingDays(invoice?.payment_confirmed_at ? new Date(invoice.payment_confirmed_at) : new Date(), PAYMENT_WORKING_DAYS);
+  const confirmExpired = !confirmed && confirmDeadline.getTime() <= now.getTime();
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -148,33 +187,78 @@ export function AuctionWonScreen({
           <View style={styles.divider} />
 
           <LineItem label="Hammer price" value={format(hammerEur)} />
-          <LineItem label="Platform fee (5%)" value={format(feeEur)} />
+          <LineItem label="Platform fee (2.9%)" value={format(feeEur)} />
           <LineItem
-            label={describeShipping(shipping)}
-            value={format(shippingEur)}
+            label={describeMethod(shipping.method)}
+            value={format(methodEur)}
             sub="Selected delivery method"
           />
+          {shipping.tuv && (
+            <LineItem label="German TÜV / Papers Service" value={format(tuvEur)} sub="Add-on service" />
+          )}
 
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total due</Text>
             <Text style={styles.totalAmount}>{format(totalEur)}</Text>
           </View>
         </View>
+
+        <CustomsDisclaimer style={{ marginTop: 12 }} />
       </View>
 
-      {/* Payment deadline */}
-      <View style={styles.section}>
-        <View style={styles.deadlineCard}>
-          <View style={styles.deadlineIcon}>
-            <Ionicons name="time-outline" size={20} color={theme.colors.warning} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.deadlineEyebrow}>Payment due within 5 working days</Text>
-            <Text style={styles.deadlineDate}>{formatDeadline(deadline)}</Text>
-            <Text style={styles.deadlineRemaining}>{formatCountdownToDeadline(deadline, now)}</Text>
+      {/* Two-step payment timeline */}
+      {!confirmed ? (
+        <View style={styles.section}>
+          <View style={[styles.deadlineCard, confirmExpired && { backgroundColor: theme.colors.errorBg, borderColor: "#fda29b" }]}>
+            <View style={styles.deadlineIcon}>
+              <Ionicons name="time-outline" size={20} color={confirmExpired ? theme.colors.error : theme.colors.warning} />
+            </View>
+            <View style={{ flex: 1 }}>
+              {confirmExpired ? (
+                <>
+                  <Text style={[styles.deadlineEyebrow, { color: theme.colors.error }]}>Confirmation window expired</Text>
+                  <Text style={styles.payBody}>You didn&apos;t confirm in time, so this vehicle may be re-listed. Contact us if you still wish to proceed.</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.deadlineEyebrow}>Confirm payment within {CONFIRM_WINDOW_HOURS} hours</Text>
+                  <Text style={styles.deadlineDate}>{formatDeadline(confirmDeadline)}</Text>
+                  <Text style={styles.deadlineRemaining}>{formatCountdownToDeadline(confirmDeadline, now)}</Text>
+                  <Text style={[styles.payBody, { marginTop: 6 }]}>
+                    Confirm your intent to pay. You&apos;ll then have {PAYMENT_WORKING_DAYS} working days to complete the wire transfer.
+                  </Text>
+                  {invoice && (
+                    <Pressable
+                      onPress={confirmPayment}
+                      disabled={confirming}
+                      style={({ pressed }) => [styles.confirmBtn, pressed && { opacity: 0.9 }]}
+                    >
+                      <Ionicons name="checkmark-circle-outline" size={16} color={theme.colors.white} />
+                      <Text style={styles.confirmText}>{confirming ? "Confirming…" : "Confirm payment"}</Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
+            </View>
           </View>
         </View>
-      </View>
+      ) : (
+        <View style={styles.section}>
+          <View style={[styles.deadlineCard, { backgroundColor: "#ecfdf3", borderColor: "#a6f4c5" }]}>
+            <View style={styles.deadlineIcon}>
+              <Ionicons name="checkmark-circle-outline" size={20} color={theme.colors.success} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.deadlineEyebrow, { color: theme.colors.success }]}>
+                Payment confirmed — wire within {PAYMENT_WORKING_DAYS} working days
+              </Text>
+              <Text style={styles.deadlineDate}>{formatDeadline(payDeadline)}</Text>
+              <Text style={[styles.deadlineRemaining, { color: theme.colors.success }]}>{formatCountdownToDeadline(payDeadline, now)}</Text>
+              <Text style={[styles.payBody, { marginTop: 6 }]}>Late or missing payment after this deadline may incur late fees/charges.</Text>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Payment instructions */}
       <View style={styles.section}>
@@ -185,9 +269,9 @@ export function AuctionWonScreen({
 
         <View style={styles.payCard}>
           <Text style={styles.payBody}>
-            Wire transfer to <Text style={styles.payStrong}>Bradshaw Automation</Text> within{" "}
-            <Text style={styles.payStrong}>5 working days</Text>. Shipping or warehouse pickup begins
-            upon payment confirmation.
+            Pay by wire transfer to <Text style={styles.payStrong}>XportACar</Text> (operated by Global
+            Business Consultancy L.L.C-FZ) within <Text style={styles.payStrong}>{PAYMENT_WORKING_DAYS} working days</Text>{" "}
+            of confirming. Shipping or warehouse pickup begins upon payment confirmation.
           </Text>
 
           <View style={styles.bankBox}>
@@ -201,7 +285,7 @@ export function AuctionWonScreen({
           <Pressable
             onPress={() => {
               void Share.share({
-                message: `XportACar invoice — ${v.year} ${v.make} ${v.model}\nTotal due: ${format(totalEur)}\nPayment deadline: ${formatDeadline(deadline)}`,
+                message: `XportACar invoice — ${v.year} ${v.make} ${v.model}\nTotal due: ${format(totalEur)}\nConfirm within 36h; then pay within 5 working days.`,
               });
             }}
             style={({ pressed }) => [styles.shareBtn, pressed && { opacity: 0.9 }]}
@@ -307,6 +391,8 @@ const styles = StyleSheet.create({
   deadlineEyebrow:  { fontSize: 10, color: theme.colors.warning, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
   deadlineDate:     { fontSize: 15, color: theme.colors.text, fontWeight: "800", marginTop: 4 },
   deadlineRemaining:{ fontSize: 12, color: theme.colors.warning, fontWeight: "700", marginTop: 2 },
+  confirmBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 12, height: 44, borderRadius: 10, backgroundColor: theme.colors.brand },
+  confirmText: { color: theme.colors.white, fontWeight: "800", fontSize: 14 },
 
   payCard: {
     backgroundColor: theme.colors.white, borderRadius: 16,

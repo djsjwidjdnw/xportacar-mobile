@@ -15,7 +15,10 @@
     "scheme": "xportacar",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.xportacar.app"
+      "bundleIdentifier": "com.xportacar.buyer",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -32,7 +35,11 @@
     ],
     "extra": {
       "supabaseUrl": "https://klettmjnnttajdyajafn.supabase.co",
-      "supabaseAnonKey": "sb_publishable_rawIwWZv12q9_VxVuaMOWQ_A2oXTEJ_"
-    }
+      "supabaseAnonKey": "sb_publishable_rawIwWZv12q9_VxVuaMOWQ_A2oXTEJ_",
+      "eas": {
+        "projectId": "3ae9c449-fd73-4fce-a53c-27c831052358"
+      }
+    },
+    "owner": "chasebitz"
   }
 }
