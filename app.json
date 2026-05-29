@@ -17,7 +17,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.xportacar.buyer",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "XportACar needs photo library access so you can attach payment proof to your invoice."
       }
     },
     "android": {

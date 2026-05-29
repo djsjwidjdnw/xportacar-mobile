@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, Pressable, ScrollView, Share, StyleSheet, Text, View,
+  Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 
 import { Spinner } from "../components/Spinner";
 import { CurrencyPills } from "../components/CurrencyPills";
@@ -63,6 +65,8 @@ interface InvoiceRow {
   status: string;
 }
 
+interface ProofFile { uri: string; name: string; mimeType: string; size: number }
+
 export function AuctionWonScreen({
   route, navigation,
 }: {
@@ -75,9 +79,14 @@ export function AuctionWonScreen({
   const [auction, setAuction] = useState<AuctionFull | null>(null);
   const [invoice, setInvoice] = useState<InvoiceRow | null>(null);
   const [loading, setLoading] = useState(true);
-  const [confirming, setConfirming] = useState(false);
   const [now, setNow] = useState(new Date());
   const [shipping] = useState<ShippingChoice>(shippingParam ?? { method: { kind: "port", port: "Hamburg" }, tuv: false });
+
+  // Payment proof flow.
+  const [proofOpen, setProofOpen] = useState(false);
+  const [proofFiles, setProofFiles] = useState<ProofFile[]>([]);
+  const [proofNote, setProofNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const loadInvoice = async () => {
     if (!user) return;
@@ -110,13 +119,60 @@ export function AuctionWonScreen({
     return () => clearInterval(i);
   }, []);
 
-  const confirmPayment = async () => {
+  const MAX_FILES = 5;
+  const MAX_BYTES = 10 * 1024 * 1024;
+
+  const addImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert("Photos disabled", "Allow photo access in Settings to attach proof."); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+    if (res.canceled || !res.assets?.[0]) return;
+    const a = res.assets[0];
+    addProof({ uri: a.uri, name: a.fileName ?? `proof-${Date.now()}.jpg`, mimeType: a.mimeType ?? "image/jpeg", size: a.fileSize ?? 0 });
+  };
+
+  const addDocument = async () => {
+    const res = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "image/png", "image/jpeg"], multiple: false, copyToCacheDirectory: true });
+    if (res.canceled || !res.assets?.[0]) return;
+    const a = res.assets[0];
+    addProof({ uri: a.uri, name: a.name ?? `proof-${Date.now()}`, mimeType: a.mimeType ?? "application/pdf", size: a.size ?? 0 });
+  };
+
+  const addProof = (f: ProofFile) => {
+    if (f.size && f.size > MAX_BYTES) { Alert.alert("File too large", `${f.name} is larger than 10MB.`); return; }
+    setProofFiles((arr) => (arr.length >= MAX_FILES ? arr : [...arr, f]));
+  };
+
+  const submitProof = async () => {
     if (!invoice) return;
-    setConfirming(true);
-    const { error } = await supabase.rpc("confirm_invoice_payment", { p_invoice_id: invoice.id });
-    setConfirming(false);
-    if (error) { Alert.alert("Couldn't confirm", error.message); return; }
-    await loadInvoice();
+    if (proofFiles.length === 0) { Alert.alert("Attach proof", "Add at least one payment proof file."); return; }
+    setSubmitting(true);
+    try {
+      const uploaded: { url: string; filename: string; uploaded_at: string }[] = [];
+      for (const f of proofFiles) {
+        const safe = f.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const key = `invoices/${invoice.id}/payment_proof/${Date.now()}-${safe}`;
+        const blob = await (await fetch(f.uri)).blob();
+        const { error: upErr } = await supabase.storage.from("vehicle-photos")
+          .upload(key, blob, { contentType: f.mimeType || blob.type || "application/octet-stream", upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from("vehicle-photos").getPublicUrl(key);
+        uploaded.push({ url: pub.publicUrl, filename: f.name, uploaded_at: new Date().toISOString() });
+      }
+      const { error } = await supabase.rpc("submit_payment_proof", {
+        p_invoice_id: invoice.id, p_urls: uploaded, p_note: proofNote,
+      });
+      if (error) throw error;
+      setProofOpen(false);
+      setProofFiles([]);
+      setProofNote("");
+      await loadInvoice();
+      Alert.alert("Payment proof submitted", "Our team will verify receipt. You now have 5 working days to complete the wire.");
+    } catch (e) {
+      Alert.alert("Couldn't submit", (e as Error).message ?? "Try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) return <Spinner label="Loading your invoice…" />;
@@ -229,12 +285,11 @@ export function AuctionWonScreen({
                   </Text>
                   {invoice && (
                     <Pressable
-                      onPress={confirmPayment}
-                      disabled={confirming}
+                      onPress={() => setProofOpen(true)}
                       style={({ pressed }) => [styles.confirmBtn, pressed && { opacity: 0.9 }]}
                     >
-                      <Ionicons name="checkmark-circle-outline" size={16} color={theme.colors.white} />
-                      <Text style={styles.confirmText}>{confirming ? "Confirming…" : "Confirm payment"}</Text>
+                      <Ionicons name="cloud-upload-outline" size={16} color={theme.colors.white} />
+                      <Text style={styles.confirmText}>Confirm payment</Text>
                     </Pressable>
                   )}
                 </>
@@ -313,6 +368,62 @@ export function AuctionWonScreen({
           <Text style={styles.footerOutlineText}>View vehicle</Text>
         </Pressable>
       </View>
+
+      {/* Payment proof upload modal */}
+      <Modal visible={proofOpen} transparent animationType="slide" onRequestClose={() => setProofOpen(false)}>
+        <View style={styles.proofBackdrop}>
+          <View style={styles.proofSheet}>
+            <View style={styles.proofHeader}>
+              <Text style={styles.proofTitle}>Confirm payment & upload proof</Text>
+              <Pressable onPress={() => setProofOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              </Pressable>
+            </View>
+            <Text style={styles.proofSub}>
+              Attach your transfer receipt (PDF, PNG or JPG — up to 5 files, 10MB each).
+              Submitting confirms your intent to pay.
+            </Text>
+
+            <View style={styles.proofPickRow}>
+              <Pressable onPress={addImage} style={({ pressed }) => [styles.proofPickBtn, pressed && { opacity: 0.9 }]}>
+                <Ionicons name="image-outline" size={18} color={theme.colors.brand} />
+                <Text style={styles.proofPickText}>Add photo</Text>
+              </Pressable>
+              <Pressable onPress={addDocument} style={({ pressed }) => [styles.proofPickBtn, pressed && { opacity: 0.9 }]}>
+                <Ionicons name="document-outline" size={18} color={theme.colors.brand} />
+                <Text style={styles.proofPickText}>Add PDF / file</Text>
+              </Pressable>
+            </View>
+
+            {proofFiles.map((f, i) => (
+              <View key={`${f.name}-${i}`} style={styles.proofFileRow}>
+                <Ionicons name="attach-outline" size={16} color={theme.colors.textLight} />
+                <Text style={styles.proofFileName} numberOfLines={1}>{f.name}</Text>
+                <Pressable onPress={() => setProofFiles((arr) => arr.filter((_, idx) => idx !== i))} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={theme.colors.textLight} />
+                </Pressable>
+              </View>
+            ))}
+
+            <TextInput
+              value={proofNote}
+              onChangeText={setProofNote}
+              placeholder="Reference number, transfer details, etc. (optional)"
+              placeholderTextColor={theme.colors.textLight}
+              multiline
+              style={styles.proofNote}
+            />
+
+            <Pressable
+              onPress={submitProof}
+              disabled={submitting || proofFiles.length === 0}
+              style={({ pressed }) => [styles.proofSubmit, (submitting || proofFiles.length === 0) && { opacity: 0.5 }, pressed && { opacity: 0.9 }]}
+            >
+              <Text style={styles.proofSubmitText}>{submitting ? "Submitting…" : "Submit proof"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -393,6 +504,20 @@ const styles = StyleSheet.create({
   deadlineRemaining:{ fontSize: 12, color: theme.colors.warning, fontWeight: "700", marginTop: 2 },
   confirmBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 12, height: 44, borderRadius: 10, backgroundColor: theme.colors.brand },
   confirmText: { color: theme.colors.white, fontWeight: "800", fontSize: 14 },
+
+  proofBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  proofSheet: { backgroundColor: theme.colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36, gap: 12 },
+  proofHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  proofTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text },
+  proofSub: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
+  proofPickRow: { flexDirection: "row", gap: 10 },
+  proofPickBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 44, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight },
+  proofPickText: { color: theme.colors.brand, fontWeight: "800", fontSize: 13 },
+  proofFileRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border },
+  proofFileName: { flex: 1, fontSize: 13, color: theme.colors.text, fontWeight: "600" },
+  proofNote: { minHeight: 64, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 12, fontSize: 13, color: theme.colors.text, textAlignVertical: "top" },
+  proofSubmit: { height: 48, borderRadius: 12, backgroundColor: theme.colors.brand, alignItems: "center", justifyContent: "center" },
+  proofSubmitText: { color: theme.colors.white, fontWeight: "800", fontSize: 15 },
 
   payCard: {
     backgroundColor: theme.colors.white, borderRadius: 16,

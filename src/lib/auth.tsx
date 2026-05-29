@@ -33,7 +33,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: session?.user ?? null,
     session,
     loading,
-    signOut: async () => { await supabase.auth.signOut(); },
+    // scope:"local" clears the stored session without a network round-trip
+    // (which can hang/fail and leave the user "stuck" logged in). Then force
+    // session state to null so RootNavigator switches to the auth stack even
+    // if onAuthStateChange is delayed.
+    signOut: async () => {
+      try { await supabase.auth.signOut({ scope: "local" }); } catch { /* clear locally regardless */ }
+      setSession(null);
+    },
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
