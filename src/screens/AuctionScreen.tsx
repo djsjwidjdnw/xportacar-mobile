@@ -168,7 +168,7 @@ export function AuctionScreen({
       proxy_max_eur: proxyOn ? proxyMax : null,
     });
     setSubmitting(false);
-    if (error) { Alert.alert(t("auction.bidFailed"), error.message); return; }
+    if (error) { console.warn("[bid] failed:", error.message); Alert.alert(t("auction.bidFailed"), t("auction.tryAgain")); return; }
     if (proxyOn) {
       Alert.alert(
         t("auction.proxyPlacedTitle"),
@@ -186,7 +186,7 @@ export function AuctionScreen({
     });
     setSubmitting(false);
     setBuyOpen(false);
-    if (error) { Alert.alert(t("auction.purchaseFailed"), error.message); return; }
+    if (error) { console.warn("[buyNow] failed:", error.message); Alert.alert(t("auction.purchaseFailed"), t("auction.tryAgain")); return; }
     navigation.navigate("AuctionWon", { id });
   };
 
