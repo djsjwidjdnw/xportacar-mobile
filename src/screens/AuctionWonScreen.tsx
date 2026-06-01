@@ -174,10 +174,24 @@ export function AuctionWonScreen({
       for (const f of proofFiles) {
         const safe = f.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
         const key = `${invoice.id}/${Date.now()}-${safe}`;
-        const blob = await (await fetch(f.uri)).blob();
+        // React Native's fetch(uri).blob() hands Supabase a Blob whose bytes
+        // don't cross the bridge, so Storage ends up with a 0-byte file. Read
+        // the real bytes into an ArrayBuffer first (works for PDF + images; no
+        // expo-file-system needed, so this stays OTA-safe).
+        const bytes = new Uint8Array(await (await fetch(f.uri)).arrayBuffer());
+        if (bytes.byteLength === 0) throw new Error(`"${f.name}" came through empty — re-select the file and try again.`);
         const { error: upErr } = await supabase.storage.from("payment-proofs")
-          .upload(key, blob, { contentType: proofContentType(f), upsert: false });
+          .upload(key, bytes, { contentType: proofContentType(f), upsert: false });
         if (upErr) throw upErr;
+        // Confirm the stored object is non-zero; if empty, remove it and fail
+        // rather than recording a broken proof reference on the invoice.
+        const fname = key.slice(key.lastIndexOf("/") + 1);
+        const { data: listed } = await supabase.storage.from("payment-proofs").list(invoice.id, { search: fname, limit: 100 });
+        const storedSize = (listed?.find((o) => o.name === fname)?.metadata as { size?: number } | undefined)?.size;
+        if (storedSize === 0) {
+          await supabase.storage.from("payment-proofs").remove([key]).catch(() => {});
+          throw new Error(`"${f.name}" uploaded empty — please try again.`);
+        }
         uploaded.push({ path: key, filename: f.name, uploaded_at: new Date().toISOString() });
       }
       const { error } = await supabase.rpc("submit_payment_proof", {

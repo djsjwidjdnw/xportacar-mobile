@@ -8,6 +8,7 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { I18nManager } from "react-native";
 import * as SecureStore from "expo-secure-store";
+import * as Updates from "expo-updates";
 import { supabase } from "./supabase";
 
 export type Locale = "en" | "de" | "ar" | "fr";
@@ -780,12 +781,29 @@ function applyRtl(shouldBeRtl: boolean) {
   } catch { /* RN platform without I18nManager (web) — no-op */ }
 }
 
+// Persist the chosen locale to the user's profile so the web app and other
+// clients pick it up. Capped so a slow/offline network can never hang the
+// switch — important because the RTL path awaits this before reloading.
+async function persistLocaleToProfile(next: Locale): Promise<void> {
+  const work = (async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await supabase.from("profiles").update({ language: next }).eq("id", user.id);
+    } catch { /* silent */ }
+  })();
+  const cap = new Promise<void>((resolve) => setTimeout(resolve, 2500));
+  await Promise.race([work, cap]);
+}
+
 // ------- Context wiring ----------------------------------------------
 
 interface I18nValue {
   locale: Locale;
   setLocale: (l: Locale) => Promise<void>;
   isRtl: boolean;
+  // True while a direction-flipping locale switch is persisting + reloading the
+  // bundle, so the language picker can show a loading state.
+  switchingLocale: boolean;
   t: (key: string, values?: Record<string, string | number>) => string;
 }
 
@@ -793,6 +811,7 @@ const I18nContext = createContext<I18nValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
+  const [switching, setSwitching] = useState(false);
 
   // On mount: prefer the signed-in user's profile.language, fall back to
   // SecureStore (across sign-outs), then default.
@@ -824,20 +843,36 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // re-renders this frame.  Persistence to SecureStore + profile happens
   // in the background; failures are silent because they shouldn't block
   // the UI update the user just made.
+  // Same-direction switches (EN ↔ DE ↔ FR) re-render instantly and persist in
+  // the background — no reload. Switching INTO or OUT OF Arabic flips the
+  // writing direction, which RN only applies on a JS reload, so we persist
+  // FIRST (awaited, so the relaunched bundle returns in the new locale) and
+  // then reload via expo-updates. Without the reload the screen stays mirrored
+  // when going RTL → LTR.
   const setLocale = useCallback(async (next: Locale) => {
+    const shouldBeRtl = next === "ar";
+    const directionChanged = I18nManager.isRTL !== shouldBeRtl;
+
     setLocaleState(next);
-    applyRtl(next === "ar");
-    // Persist for next launch.
-    void SecureStore.setItemAsync(STORE_KEY, next).catch(() => {});
-    // Persist to profile so other clients (web) pick it up.
-    void (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from("profiles").update({ language: next }).eq("id", user.id);
-        }
-      } catch { /* silent */ }
-    })();
+    applyRtl(shouldBeRtl);
+
+    if (!directionChanged) {
+      void SecureStore.setItemAsync(STORE_KEY, next).catch(() => {});
+      void persistLocaleToProfile(next);
+      return;
+    }
+
+    setSwitching(true);
+    await SecureStore.setItemAsync(STORE_KEY, next).catch(() => {});
+    await persistLocaleToProfile(next);
+    try {
+      await Updates.reloadAsync();
+      // reloadAsync tears down the JS context — nothing after this runs on success.
+    } catch {
+      // Dev client / Expo Go / web export: reloadAsync unavailable. forceRTL is
+      // already set and applies on the next manual restart; free the picker.
+      setSwitching(false);
+    }
   }, []);
 
   const t = useCallback(
@@ -850,7 +885,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   return createElement(
     I18nContext.Provider,
-    { value: { locale, setLocale, isRtl: locale === "ar", t } },
+    { value: { locale, setLocale, isRtl: locale === "ar", switchingLocale: switching, t } },
     children,
   );
 }
