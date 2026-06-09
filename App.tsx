@@ -6,6 +6,7 @@ import { AuthProvider } from "./src/lib/auth";
 import { I18nProvider } from "./src/lib/i18n";
 import { CurrencyProvider } from "./src/lib/currency";
 import { RootNavigator } from "./src/navigation";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 
 export default function App() {
   return (
@@ -14,8 +15,10 @@ export default function App() {
         <AuthProvider>
           <I18nProvider>
             <CurrencyProvider>
-              <StatusBar style="dark" />
-              <RootNavigator />
+              <ErrorBoundary>
+                <StatusBar style="dark" />
+                <RootNavigator />
+              </ErrorBoundary>
             </CurrencyProvider>
           </I18nProvider>
         </AuthProvider>

@@ -21,6 +21,10 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
       Alert.alert("Missing info", "Name, email and password are required.");
       return;
     }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+      Alert.alert("Invalid email", "Enter a valid email address.");
+      return;
+    }
     if (password.length < 8) {
       Alert.alert("Weak password", "Use at least 8 characters.");
       return;

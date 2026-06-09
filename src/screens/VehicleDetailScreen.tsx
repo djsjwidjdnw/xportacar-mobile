@@ -99,10 +99,6 @@ export function VehicleDetailScreen({
         if (ar) a = ar as AuctionRow;
       }
       setAuction(a);
-      // Diagnostic — surfaces in Metro logs so we can confirm the auction
-      // payload reached the screen. Remove once the sticky CTA is stable.
-      // eslint-disable-next-line no-console
-      console.log("[VehicleDetail] AUCTION DATA:", JSON.stringify(a));
       setLoading(false);
     })();
   }, [id]);

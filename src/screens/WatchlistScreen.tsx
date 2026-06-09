@@ -27,30 +27,26 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
 
   const loadFromDb = useCallback(async () => {
     if (!user) {
-      console.log("[Watchlist] no user, skipping load");
       setItems([]);
       setLoading(false);
       return;
     }
     setError(null);
-    console.log("[Watchlist] step 1: fetching watchlist rows for user", user.id);
     const { data: wlRows, error: wlErr } = await supabase
       .from("watchlist")
       .select("vehicle_id")
       .eq("user_id", user.id);
     if (wlErr) {
-      console.warn("[Watchlist] watchlist query error:", wlErr.message);
+      if (__DEV__) console.warn("[Watchlist] watchlist query error:", wlErr.message);
       setError(wlErr.message);
       setItems([]);
       return;
     }
     const ids = ((wlRows ?? []) as { vehicle_id: string }[]).map((r) => r.vehicle_id);
-    console.log(`[Watchlist] step 1: got ${ids.length} watchlist ids`, ids);
     if (ids.length === 0) {
       setItems([]);
       return;
     }
-    console.log("[Watchlist] step 2: fetching vehicles for ids");
     const { data: vehicles, error: vErr } = await supabase
       .from("vehicles")
       .select(`
@@ -60,12 +56,11 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       `)
       .in("id", ids);
     if (vErr) {
-      console.warn("[Watchlist] vehicles query error:", vErr.message);
+      if (__DEV__) console.warn("[Watchlist] vehicles query error:", vErr.message);
       setError(vErr.message);
       setItems([]);
       return;
     }
-    console.log(`[Watchlist] step 2: got ${(vehicles ?? []).length} vehicles for ${ids.length} ids`);
 
     type Row = VehicleRow & {
       vehicle_photos?: { url: string; sort_order: number }[];
@@ -82,7 +77,6 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
-    console.log(`[Watchlist] built ${list.length} list items`);
     setItems(list);
   }, [user]);
 
