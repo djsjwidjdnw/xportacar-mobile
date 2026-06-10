@@ -1,11 +1,9 @@
 import { useState } from "react";
-import {
-  Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
-  StyleSheet, Text, TextInput, View,
-} from "react-native";
+import { Alert, Image, StyleSheet, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { Button } from "../components/Button";
+import { KeyboardAwareScroll } from "../components/KeyboardAwareScroll";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { registerForPush } from "../lib/push";
@@ -33,12 +31,8 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={{ flex: 1, backgroundColor: theme.colors.white }}
-    >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        {/* Logo + tagline */}
+    <KeyboardAwareScroll contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.white }}>
+      {/* Logo + tagline */}
         <View style={styles.header}>
           <Image source={require("../../assets/logo.jpg")} style={styles.logo} resizeMode="contain" />
           <Text style={styles.tagline}>Export Cars. Connect Worlds.</Text>
@@ -84,8 +78,7 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
           onPress={() => navigation.navigate("Register")}
           style={{ marginTop: 4 }}
         />
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScroll>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View,
+  Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -406,7 +406,7 @@ export function AuctionWonScreen({
 
       {/* Payment proof upload modal */}
       <Modal visible={proofOpen} transparent animationType="slide" onRequestClose={() => setProofOpen(false)}>
-        <View style={styles.proofBackdrop}>
+        <KeyboardAvoidingView style={styles.proofBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.proofSheet}>
             <View style={styles.proofHeader}>
               <Text style={styles.proofTitle}>Confirm payment & upload proof</Text>
@@ -457,7 +457,7 @@ export function AuctionWonScreen({
               <Text style={styles.proofSubmitText}>{submitting ? "Submitting…" : "Submit proof"}</Text>
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );

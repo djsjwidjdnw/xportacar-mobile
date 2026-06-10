@@ -1,9 +1,8 @@
 import { useState } from "react";
-import {
-  Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
-} from "react-native";
+import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Button } from "../components/Button";
+import { KeyboardAwareScroll } from "../components/KeyboardAwareScroll";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { registerForPush } from "../lib/push";
@@ -64,11 +63,7 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={{ flex: 1, backgroundColor: theme.colors.bg }}
-    >
-      <ScrollView contentContainerStyle={styles.container}>
+    <KeyboardAwareScroll contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.bg }}>
         <Text style={styles.title}>Open a trade account</Text>
         <Text style={styles.subtitle}>Two minutes. Approved within a day.</Text>
 
@@ -100,8 +95,7 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
 
         <Button label={loading ? "Creating…" : "Create account"} onPress={submit} loading={loading} fullWidth style={{ marginTop: 8 }} />
         <Button label="Back to sign in" variant="ghost" onPress={() => navigation.goBack()} style={{ marginTop: 6 }} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScroll>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 // ScrollView is used twice in this file: the outer page wrapper + a
 // horizontal one for the recent-bids carousel.
@@ -135,7 +135,13 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
     : { bg: theme.colors.warningBg, fg: theme.colors.warning, l: t("profile.kycPending"), icon: "time-outline"      as const };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      <ScrollView
+        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
       <View style={styles.logoBar}>
         <Image source={require("../../assets/logo.jpg")} style={styles.logo} resizeMode="contain" />
       </View>
@@ -342,7 +348,8 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       </Pressable>
 
       <Text style={styles.versionText}>XportACar · v1.0.0</Text>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
