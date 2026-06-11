@@ -9,7 +9,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
-import { theme } from "../lib/theme";
+import { theme, pickThumbnailPhoto } from "../lib/theme";
 import type { VehicleRow, AuctionRow } from "../lib/types";
 
 // Owns its own load (does NOT subscribe to the useWatchlist hook's id Set —
@@ -51,7 +51,7 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       .from("vehicles")
       .select(`
         *,
-        vehicle_photos (url, sort_order),
+        vehicle_photos (url, sort_order, caption, category),
         auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)
       .in("id", ids);
@@ -63,7 +63,7 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
     }
 
     type Row = VehicleRow & {
-      vehicle_photos?: { url: string; sort_order: number }[];
+      vehicle_photos?: { url: string; sort_order: number; caption?: string | null; category?: string | null }[];
       auctions?: AuctionRow[] | AuctionRow | null;
     };
     const pickAuction = (a: Row["auctions"]): AuctionRow | null => {
@@ -72,7 +72,8 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
       return a;
     };
     const list: VehicleListItem[] = ((vehicles ?? []) as Row[]).map((v) => {
-      const photo = (v.vehicle_photos ?? []).sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
+      // Prefer the front-right 3/4 exterior shot for the card thumbnail.
+      const photo = pickThumbnailPhoto(v.vehicle_photos)?.url ?? null;
       const auction = pickAuction(v.auctions);
       const { vehicle_photos: _vp, auctions: _au, ...rest } = v;
       return { ...(rest as VehicleRow), photo_url: photo, auction };

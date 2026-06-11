@@ -16,7 +16,7 @@ import { estimateValuation, getMarketValuation, pricePosition, type Valuation } 
 import { supabase } from "../lib/supabase";
 import {
   theme, formatKm, formatRemaining, formatScheduledStartLong,
-  isAuctionLive, isAuctionEnded, isAuctionScheduled,
+  isAuctionLive, isAuctionEnded, isAuctionScheduled, pickThumbnailPhoto,
 } from "../lib/theme";
 import { useCurrency } from "../lib/currency";
 import { useTranslation } from "../lib/i18n";
@@ -103,10 +103,13 @@ export function VehicleDetailScreen({
     })();
   }, [id]);
 
-  const photos = useMemo(
-    () => (vehicle?.vehicle_photos ?? []).slice().sort((a, b) => a.sort_order - b.sort_order),
-    [vehicle],
-  );
+  const photos = useMemo(() => {
+    const sorted = (vehicle?.vehicle_photos ?? []).slice().sort((a, b) => a.sort_order - b.sort_order);
+    // Lead the carousel with the front-right 3/4 exterior shot so the hero
+    // matches the marketplace thumbnail framing; keep the rest in order.
+    const lead = pickThumbnailPhoto(sorted);
+    return lead ? [lead, ...sorted.filter((p) => p !== lead)] : sorted;
+  }, [vehicle]);
   // Compute live/scheduled/ended from end_time + status so the sticky CTA
   // and badges stay accurate when the DB row hasn't flipped to "ended" yet.
   const live      = isAuctionLive(auction);
@@ -168,7 +171,13 @@ export function VehicleDetailScreen({
             onMomentumScrollEnd={(e) => setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
             renderItem={({ item, index }) => (
               <Pressable onPress={() => setLightboxIndex(index)}>
-                <Image source={{ uri: item.url }} style={{ width, height: width * 0.72 }} contentFit="cover" />
+                {/* contain (not cover) so the car is centred with whitespace on
+                    the neutral bg, never zoomed/cropped. */}
+                <Image
+                  source={{ uri: item.url }}
+                  style={{ width, height: width * 0.72, backgroundColor: theme.colors.bgAlt }}
+                  contentFit="contain"
+                />
               </Pressable>
             )}
           />
@@ -591,6 +600,11 @@ function Spec({
   );
 }
 
+// expo-image needs CONCRETE dimensions — a percentage width + aspectRatio
+// renders 0-height (why the report photos were invisible). 2-column grid:
+// ScrollView padding 16 each side + 8 gap.
+const REPORT_PHOTO_W = (Dimensions.get("window").width - 40) / 2;
+
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
@@ -722,7 +736,7 @@ const styles = StyleSheet.create({
   reportSectionTitle: { fontSize: 14, fontWeight: "800", color: theme.colors.text, marginBottom: 10 },
   reportNotesText: { fontSize: 13, lineHeight: 20, color: theme.colors.textMuted },
   reportPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  reportPhoto:   { width: "48%", aspectRatio: 4 / 3, borderRadius: 10, backgroundColor: theme.colors.bgAlt },
+  reportPhoto:   { width: REPORT_PHOTO_W, height: REPORT_PHOTO_W * 0.75, borderRadius: 10, backgroundColor: theme.colors.bgAlt },
   reportDamageCard: {
     flexDirection: "row", gap: 12, padding: 12,
     backgroundColor: theme.colors.white, borderRadius: 12,

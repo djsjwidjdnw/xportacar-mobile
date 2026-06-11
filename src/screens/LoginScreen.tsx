@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Alert, Image, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 
 import { Button } from "../components/Button";
 import { KeyboardAwareScroll } from "../components/KeyboardAwareScroll";
@@ -13,6 +14,7 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const signIn = async () => {
@@ -55,14 +57,23 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
         </Field>
 
         <Field label={t("auth.password")}>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="password"
-            placeholderTextColor={theme.colors.textLight}
-            style={styles.input}
-          />
+          <View style={styles.pwRow}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPw}
+              autoComplete="password"
+              placeholderTextColor={theme.colors.textLight}
+              style={[styles.input, styles.pwInput]}
+            />
+            <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
+              <Ionicons
+                name={showPw ? "eye-off-outline" : "eye-outline"}
+                size={20}
+                color={theme.colors.textLight}
+              />
+            </Pressable>
+          </View>
         </Field>
 
         {/* Gradient sign-in button */}
@@ -131,6 +142,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     backgroundColor: theme.colors.bgAlt,
   },
+  pwRow:   { justifyContent: "center" },
+  pwInput: { paddingRight: 48 },
+  eyeBtn:  { position: "absolute", right: 8, padding: 8 },
   gradientBtnWrap: {
     height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
     shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },

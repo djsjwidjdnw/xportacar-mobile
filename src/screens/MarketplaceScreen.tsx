@@ -13,7 +13,7 @@ import {
   FilterBar, EMPTY_FILTERS, type VehicleFilters,
 } from "../components/FilterBar";
 import { supabase } from "../lib/supabase";
-import { theme, isAuctionLive, isAuctionEnded, isAuctionScheduled } from "../lib/theme";
+import { theme, isAuctionLive, isAuctionEnded, isAuctionScheduled, pickThumbnailPhoto } from "../lib/theme";
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
@@ -55,14 +55,14 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       .from("vehicles")
       .select(`
         *,
-        vehicle_photos (url, sort_order),
+        vehicle_photos (url, sort_order, caption, category),
         auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)
       .in("status", ["listed", "in_auction"])
       .order("updated_at", { ascending: false });
     if (error) { setItems([]); return; }
     type Row = VehicleRow & {
-      vehicle_photos?: { url: string; sort_order: number }[];
+      vehicle_photos?: { url: string; sort_order: number; caption?: string | null; category?: string | null }[];
       auctions?: AuctionRow[] | AuctionRow | null;
     };
     const pickAuction = (a: Row["auctions"]): AuctionRow | null => {
@@ -71,8 +71,8 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       return a;
     };
     const list: VehicleListItem[] = (data as Row[]).map((row) => {
-      const photos = (row.vehicle_photos ?? []) as { url: string; sort_order: number }[];
-      const photo = photos.sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
+      // Prefer the front-right 3/4 exterior shot for the card thumbnail.
+      const photo = pickThumbnailPhoto(row.vehicle_photos)?.url ?? null;
       const auction = pickAuction(row.auctions);
       const { vehicle_photos: _v, auctions: _a, ...rest } = row;
       return { ...(rest as VehicleRow), photo_url: photo, auction };

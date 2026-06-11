@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -8,7 +10,7 @@ import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTranslation } from "../lib/i18n";
-import { theme, formatEur, isAuctionLive, isAuctionEnded } from "../lib/theme";
+import { theme, formatEur, isAuctionLive, isAuctionEnded, pickThumbnailPhoto, thumb } from "../lib/theme";
 
 interface BidWithAuction {
   id: string;
@@ -20,7 +22,13 @@ interface BidWithAuction {
     status: string;
     end_time: string;
     winner_id: string | null;
-    vehicle: { id: string; year: number; make: string; model: string } | null;
+    vehicle: {
+      id: string;
+      year: number;
+      make: string;
+      model: string;
+      vehicle_photos?: { url: string; sort_order: number; caption: string | null; category: string | null }[];
+    } | null;
   } | null;
 }
 
@@ -28,6 +36,7 @@ interface BidWithAuction {
 export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<BidWithAuction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,7 +49,10 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
         id, amount_eur, created_at,
         auction:auctions!auction_id (
           id, current_bid_eur, status, end_time, winner_id,
-          vehicle:vehicles!vehicle_id (id, year, make, model)
+          vehicle:vehicles!vehicle_id (
+            id, year, make, model,
+            vehicle_photos (url, sort_order, caption, category)
+          )
         )
       `)
       .eq("bidder_id", user.id)
@@ -82,7 +94,9 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
             colors={[theme.colors.brand]}
           />
         }
-        contentContainerStyle={{ padding: 16, flexGrow: 1 }}
+        // Buffer the list below the status bar / notch so the first row isn't
+        // jammed against the top edge (safe-area top + a little breathing room).
+        contentContainerStyle={{ padding: 16, paddingTop: insets.top + 16, flexGrow: 1 }}
         renderItem={({ item }) => {
           const a = item.auction!;
           // Derive accurate state from end_time + winner — don't trust
@@ -91,6 +105,8 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
           const live = isAuctionLive(a);
           const isWinner = ended && a.winner_id === user.id;
           const winning = !ended && item.amount_eur >= (a.current_bid_eur ?? 0);
+          // Prefer the front-right 3/4 exterior shot for the row thumbnail.
+          const thumbUrl = pickThumbnailPhoto(a.vehicle?.vehicle_photos)?.url ?? null;
 
           const tag = isWinner
             ? { l: t("bids.won"),     bg: theme.colors.successBg, fg: theme.colors.success, icon: "trophy" as const }
@@ -108,6 +124,20 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.96, transform: [{ scale: 0.99 }] }]}
             >
               <View style={styles.topRow}>
+                {/* Vehicle thumbnail — contain on a neutral bg so the car is
+                    centred with whitespace, never zoomed/cropped. */}
+                {thumbUrl ? (
+                  <Image
+                    source={{ uri: thumb(thumbUrl, 200) }}
+                    style={styles.thumb}
+                    contentFit="contain"
+                    transition={150}
+                  />
+                ) : (
+                  <View style={[styles.thumb, styles.thumbPlaceholder]}>
+                    <Ionicons name="car-outline" size={20} color={theme.colors.textLight} />
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title}>
                     {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}` : "—"}
@@ -164,6 +194,11 @@ const styles = StyleSheet.create({
     shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
   topRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  thumb: {
+    width: 56, height: 56, borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.bgAlt,
+  },
+  thumbPlaceholder: { alignItems: "center", justifyContent: "center" },
   title: { fontSize: 15, fontWeight: "800", color: theme.colors.text },
   sub:   { fontSize: 12, color: theme.colors.textLight, marginTop: 4 },
   tag:   { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: theme.radius.full },

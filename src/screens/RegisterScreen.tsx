@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 
 import { Button } from "../components/Button";
@@ -37,6 +38,7 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
   const [country, setCountry] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
@@ -149,7 +151,12 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
           />
         </Field>
         <Field label="Password" required>
-          <TextInput value={password} onChangeText={setPassword} secureTextEntry style={styles.input} placeholderTextColor={theme.colors.textLight} />
+          <View style={styles.pwRow}>
+            <TextInput value={password} onChangeText={setPassword} secureTextEntry={!showPw} style={[styles.input, styles.pwInput]} placeholderTextColor={theme.colors.textLight} />
+            <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
+              <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={20} color={theme.colors.textLight} />
+            </Pressable>
+          </View>
           <Text style={styles.hint}>At least 8 characters.</Text>
         </Field>
 
@@ -184,4 +191,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     backgroundColor: theme.colors.white,
   },
+  pwRow:   { justifyContent: "center" },
+  pwInput: { paddingRight: 48 },
+  eyeBtn:  { position: "absolute", right: 6, padding: 8 },
 });

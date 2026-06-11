@@ -72,6 +72,40 @@ export const thumb = (url: string | null | undefined, width = 600): string => {
   }
 };
 
+// Pick the single best photo to represent a vehicle in a thumbnail. The
+// Front-right 3/4 exterior shot is the most flattering, recognisable framing,
+// so we prefer it. Falls back gracefully when captions/categories are missing.
+//
+// Priority:
+//   1. caption matches the front 3/4 / front-right framing,
+//   2. caption mentions "front",
+//   3. lowest sort_order exterior photo,
+//   4. lowest sort_order photo overall.
+export interface ThumbCandidate {
+  url: string;
+  sort_order?: number | null;
+  caption?: string | null;
+  category?: string | null;
+}
+
+const FRONT_THREE_QUARTER_RE = /front.*(three[- ]?quarter|3\/4|right)/i;
+const FRONT_RE = /front/i;
+
+export function pickThumbnailPhoto<T extends ThumbCandidate>(
+  photos: readonly T[] | null | undefined,
+): T | undefined {
+  if (!photos || photos.length === 0) return undefined;
+  const byOrder = [...photos].sort(
+    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+  );
+  return (
+    byOrder.find((p) => p.caption && FRONT_THREE_QUARTER_RE.test(p.caption)) ??
+    byOrder.find((p) => p.caption && FRONT_RE.test(p.caption)) ??
+    byOrder.find((p) => p.category === "exterior") ??
+    byOrder[0]
+  );
+}
+
 export const formatRemaining = (endIso: string): string => {
   const ms = new Date(endIso).getTime() - Date.now();
   if (ms <= 0) return "Ended";

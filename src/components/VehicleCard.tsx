@@ -95,7 +95,9 @@ export function VehicleCard({
         <Image
           source={vehicle.photo_url ? { uri: thumb(vehicle.photo_url, 600) } : require("../../assets/icon.png")}
           style={styles.image}
-          contentFit="cover"
+          // contain (not cover) so the car is centred with whitespace on the
+          // neutral bg, never zoomed/cropped.
+          contentFit="contain"
           transition={150}
         />
         {ended && (

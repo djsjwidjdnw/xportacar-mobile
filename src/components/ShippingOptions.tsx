@@ -7,7 +7,7 @@ import { useCurrency } from "../lib/currency";
 import { CustomsDisclaimer } from "./CustomsDisclaimer";
 import {
   getShippingRates, portRoutes, serviceRate, getShippingPriceEur, describeShipping,
-  describeMethod, getMethodPriceEur, tuvPriceEur,
+  describeMethod, getMethodPriceEur, tuvPriceEur, PORT_FLAT_EUR,
   FALLBACK_RATES, type ShippingChoice, type ShippingRate,
 } from "../lib/shipping";
 
@@ -40,7 +40,7 @@ export function ShippingOptions({
 
   const roro = useMemo(() => portRoutes(rates, "roro"), [rates]);
   const doorPrice = serviceRate(rates, "door_to_door_eu")?.base_price_eur ?? 800;
-  const tuvPrice = serviceRate(rates, "service_tuv")?.base_price_eur ?? 750;
+  const tuvPrice = serviceRate(rates, "service_tuv")?.base_price_eur ?? 3500;
 
   const setMethod = (method: ShippingChoice["method"]) => onChange({ ...value, method });
 
@@ -75,7 +75,7 @@ export function ShippingOptions({
                 <Text style={styles.subTitle} numberOfLines={1}>{p.destination_port}{country ? `, ${country}` : ""}</Text>
                 <Text style={styles.subMeta}>{p.transit_days_min}–{p.transit_days_max} days</Text>
               </View>
-              <Text style={styles.subPrice} numberOfLines={1}>{format(p.base_price_eur)}</Text>
+              <Text style={styles.subPrice} numberOfLines={1}>{format(PORT_FLAT_EUR)}</Text>
             </Pressable>
           );
         })}
@@ -106,7 +106,7 @@ export function ShippingOptions({
           </View>
         </View>
         <View style={styles.textBlock}>
-          <Text style={styles.title} numberOfLines={2}>German TÜV / Papers Service</Text>
+          <Text style={styles.title} numberOfLines={2}>German Registration (TÜV)</Text>
           <Text style={styles.subtitle} numberOfLines={2}>Inspection for DE registration, CoC, customs paperwork</Text>
         </View>
         <View style={styles.priceBlock}>
