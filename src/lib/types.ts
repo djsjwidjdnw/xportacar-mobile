@@ -2,7 +2,8 @@
 
 export type VehicleStatus =
   | "draft" | "inspection_scheduled" | "inspected" | "listed" | "in_auction"
-  | "sold"  | "payment_pending" | "paid" | "collected" | "shipped" | "delivered";
+  | "sold"  | "payment_pending" | "paid" | "picked_up" | "in_transit"
+  | "collected" | "shipped" | "delivered";
 
 export type AuctionStatus = "scheduled" | "active" | "ended" | "sold" | "cancelled";
 
@@ -21,6 +22,7 @@ export interface VehicleRow {
   location_city: string;
   location_country: string;
   status: VehicleStatus;
+  sold_at?: string | null;
   listed_price_eur: number | null;
   reserve_price_eur: number | null;
   buy_now_price_eur: number | null;

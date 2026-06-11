@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View,
+  Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 
@@ -14,10 +15,11 @@ import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { useCurrency } from "../lib/currency";
 import { useAuth } from "../lib/auth";
+import { useTranslation } from "../lib/i18n";
 import {
   describeMethod, getMethodPriceEur, tuvPriceEur, type ShippingChoice,
 } from "../components/ShippingOptions";
-import type { AuctionRow, VehicleRow } from "../lib/types";
+import type { AuctionRow, VehicleRow, VehicleStatus } from "../lib/types";
 
 interface AuctionFull extends AuctionRow {
   vehicle: VehicleRow;
@@ -58,11 +60,45 @@ const PLATFORM_FEE_PCT = 0.029;
 const CONFIRM_WINDOW_HOURS = 36;
 const PAYMENT_WORKING_DAYS = 5;
 
+// Web origin that serves the server-rendered PDF invoice. Ships in the OTA
+// manifest (extra.webUrl); falls back to production.
+const WEB_URL =
+  (Constants.expoConfig?.extra as { webUrl?: string } | undefined)?.webUrl ??
+  "https://xportacar.com";
+
 interface InvoiceRow {
   id: string;
   created_at: string;
   payment_confirmed_at: string | null;
   status: string;
+}
+
+// Order-lifecycle timeline (sold → picked_up → in_transit → delivered).
+const TIMELINE_STEPS = ["sold", "picked_up", "in_transit", "delivered"] as const;
+type TimelineStatus = (typeof TIMELINE_STEPS)[number];
+const TIMELINE_LABEL_KEY: Record<TimelineStatus, string> = {
+  sold: "timeline.sold",
+  picked_up: "timeline.pickedUp",
+  in_transit: "timeline.inTransit",
+  delivered: "timeline.delivered",
+};
+const TIMELINE_ICON: Record<TimelineStatus, keyof typeof Ionicons.glyphMap> = {
+  sold: "trophy-outline",
+  picked_up: "cube-outline",
+  in_transit: "boat-outline",
+  delivered: "checkmark-done-outline",
+};
+
+interface StatusEventRow {
+  status: string;
+  note: string | null;
+  created_at: string;
+}
+
+function formatEventDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 interface ProofFile { uri: string; name: string; mimeType: string; size: number }
@@ -91,8 +127,10 @@ export function AuctionWonScreen({
   const { id, shipping: shippingParam } = route.params;
   const { user } = useAuth();
   const { format } = useCurrency();
+  const { t } = useTranslation();
   const [auction, setAuction] = useState<AuctionFull | null>(null);
   const [invoice, setInvoice] = useState<InvoiceRow | null>(null);
+  const [statusEvents, setStatusEvents] = useState<StatusEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(new Date());
   const [shipping] = useState<ShippingChoice>(shippingParam ?? { method: { kind: "port", port: "Hamburg" }, tuv: false });
@@ -121,7 +159,19 @@ export function AuctionWonScreen({
         .select(`*, vehicle:vehicles!vehicle_id(*)`)
         .eq("id", id)
         .single();
-      setAuction((data as AuctionFull) ?? null);
+      const full = (data as AuctionFull) ?? null;
+      setAuction(full);
+      // Order-lifecycle events for this vehicle (sold → … → delivered).
+      const vehicleId = full?.vehicle?.id;
+      if (vehicleId) {
+        const { data: ev } = await supabase
+          .from("vehicle_status_events")
+          .select("status, note, created_at")
+          .eq("vehicle_id", vehicleId)
+          .in("status", TIMELINE_STEPS as unknown as string[])
+          .order("created_at", { ascending: true });
+        setStatusEvents((ev as StatusEventRow[]) ?? []);
+      }
       await loadInvoice();
       setLoading(false);
     })();
@@ -210,6 +260,38 @@ export function AuctionWonScreen({
     }
   };
 
+  // Server-rendered PDF for THIS invoice (route: /api/invoice/:id/pdf).
+  // expo-file-system / expo-sharing are NOT installed, and adding them would
+  // need a native rebuild (not OTA-safe). So we stay OTA-safe:
+  //  • Download → open the PDF URL in the system browser via Linking.openURL,
+  //    where iOS/Android lets the user save or share the file.
+  //  • Share   → the built-in React Native Share sheet with the PDF { url }.
+  const invoicePdfUrl = invoice ? `${WEB_URL}/api/invoice/${invoice.id}/pdf` : null;
+
+  const downloadPdf = async () => {
+    if (!invoicePdfUrl) return;
+    try {
+      const ok = await Linking.canOpenURL(invoicePdfUrl);
+      if (!ok) { Alert.alert("Can't open", "No app available to open the PDF link."); return; }
+      await Linking.openURL(invoicePdfUrl);
+    } catch {
+      Alert.alert("Couldn't open invoice", "Try again, or use Share to send the link.");
+    }
+  };
+
+  const sharePdf = async () => {
+    if (!invoicePdfUrl) return;
+    try {
+      await Share.share({
+        // iOS uses `url`, Android uses `message`; provide both for coverage.
+        url: invoicePdfUrl,
+        message: `XportACar invoice — download the PDF: ${invoicePdfUrl}`,
+      });
+    } catch {
+      // User dismissed the share sheet — no action needed.
+    }
+  };
+
   if (loading) return <Spinner label="Loading your invoice…" />;
   if (!auction || !auction.vehicle) {
     return <View style={styles.center}><Text>Auction not found.</Text></View>;
@@ -229,6 +311,16 @@ export function AuctionWonScreen({
   const confirmDeadline = new Date(createdAt.getTime() + CONFIRM_WINDOW_HOURS * 3600_000);
   const payDeadline = addWorkingDays(invoice?.payment_confirmed_at ? new Date(invoice.payment_confirmed_at) : new Date(), PAYMENT_WORKING_DAYS);
   const confirmExpired = !confirmed && confirmDeadline.getTime() <= now.getTime();
+
+  // Order-status timeline: index the latest event per status, then resolve each
+  // of the four steps to complete / current / future.
+  const eventByStatus = new Map<string, StatusEventRow>();
+  for (const e of statusEvents) {
+    const prev = eventByStatus.get(e.status);
+    if (!prev || new Date(e.created_at) > new Date(prev.created_at)) eventByStatus.set(e.status, e);
+  }
+  const vehicleStatus: VehicleStatus | null = v.status ?? null;
+  const currentStepIndex = TIMELINE_STEPS.indexOf(vehicleStatus as TimelineStatus);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -255,6 +347,72 @@ export function AuctionWonScreen({
       <View style={styles.currencyRow}>
         <CurrencyPills />
       </View>
+
+      {/* Order-status timeline (sold → picked_up → in_transit → delivered) */}
+      {isWinner && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="navigate-outline" size={16} color={theme.colors.brand} />
+            <Text style={styles.sectionTitle}>{t("timeline.orderStatus")}</Text>
+          </View>
+
+          <View style={styles.timelineCard}>
+            {TIMELINE_STEPS.map((step, i) => {
+              const event = eventByStatus.get(step);
+              // Sold counts as complete once the vehicle is sold, even with no
+              // explicit event row (orders predating the events table).
+              const soldComplete = step === "sold" && (!!v.sold_at || vehicleStatus === "sold" || currentStepIndex > 0);
+              const isComplete = !!event || soldComplete;
+              const isCurrent = vehicleStatus === step;
+              const dateIso = event?.created_at ?? (step === "sold" ? v.sold_at ?? null : null);
+              const isLast = i === TIMELINE_STEPS.length - 1;
+
+              const circleColor = isComplete
+                ? theme.colors.success
+                : isCurrent
+                  ? theme.colors.brand
+                  : theme.colors.border;
+              const iconName: keyof typeof Ionicons.glyphMap = isComplete
+                ? "checkmark"
+                : isCurrent
+                  ? "ellipse"
+                  : TIMELINE_ICON[step];
+
+              return (
+                <View key={step} style={styles.tlRow}>
+                  {/* Rail: circle + connector */}
+                  <View style={styles.tlRail}>
+                    <View style={[styles.tlCircle, { backgroundColor: circleColor, borderColor: circleColor }]}>
+                      <Ionicons
+                        name={iconName}
+                        size={isCurrent && !isComplete ? 10 : 14}
+                        color={isComplete || isCurrent ? theme.colors.white : theme.colors.textLight}
+                      />
+                    </View>
+                    {!isLast && (
+                      <View style={[styles.tlConnector, { backgroundColor: isComplete ? theme.colors.success : theme.colors.border }]} />
+                    )}
+                  </View>
+
+                  {/* Step content */}
+                  <View style={[styles.tlContent, !isLast && { paddingBottom: 18 }]}>
+                    <Text
+                      style={[
+                        styles.tlLabel,
+                        isComplete ? styles.tlLabelDone : isCurrent ? styles.tlLabelCurrent : styles.tlLabelFuture,
+                      ]}
+                    >
+                      {t(TIMELINE_LABEL_KEY[step])}
+                    </Text>
+                    {dateIso && <Text style={styles.tlDate}>{formatEventDate(dateIso)}</Text>}
+                    {event?.note ? <Text style={styles.tlNote}>{event.note}</Text> : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* Invoice */}
       <View style={styles.section}>
@@ -295,6 +453,25 @@ export function AuctionWonScreen({
         </View>
 
         <CustomsDisclaimer style={{ marginTop: 12 }} />
+
+        {invoicePdfUrl && (
+          <View style={styles.pdfRow}>
+            <Pressable
+              onPress={downloadPdf}
+              style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
+            >
+              <Ionicons name="download-outline" size={16} color={theme.colors.brand} />
+              <Text style={styles.pdfBtnText}>Download PDF</Text>
+            </Pressable>
+            <Pressable
+              onPress={sharePdf}
+              style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
+            >
+              <Ionicons name="share-outline" size={16} color={theme.colors.brand} />
+              <Text style={styles.pdfBtnText}>Share PDF</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       {/* Two-step payment timeline */}
@@ -527,6 +704,23 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 12, color: theme.colors.textLight, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
   totalAmount:{ fontSize: 22, fontWeight: "800", color: theme.colors.brand },
 
+  timelineCard: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border,
+    padding: 16,
+  },
+  tlRow:       { flexDirection: "row", gap: 12 },
+  tlRail:      { alignItems: "center", width: 28 },
+  tlCircle:    { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  tlConnector: { width: 2, flex: 1, minHeight: 22, marginTop: 2 },
+  tlContent:   { flex: 1, paddingTop: 3 },
+  tlLabel:        { fontSize: 14, fontWeight: "800" },
+  tlLabelDone:    { color: theme.colors.text },
+  tlLabelCurrent: { color: theme.colors.brandDark },
+  tlLabelFuture:  { color: theme.colors.textLight },
+  tlDate:      { fontSize: 11, color: theme.colors.textLight, fontWeight: "600", marginTop: 2 },
+  tlNote:      { fontSize: 12, color: theme.colors.textMuted, marginTop: 3, lineHeight: 17 },
+
   deadlineCard: {
     flexDirection: "row", alignItems: "center", gap: 12,
     padding: 16, borderRadius: 14,
@@ -572,6 +766,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight,
   },
   shareText: { color: theme.colors.brand, fontWeight: "800", fontSize: 12 },
+
+  pdfRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  pdfBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    height: 44, borderRadius: 10,
+    borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight,
+  },
+  pdfBtnText: { color: theme.colors.brand, fontWeight: "800", fontSize: 13 },
 
   footer: { paddingHorizontal: 16, marginTop: 22, flexDirection: "row", gap: 10 },
   footerOutline: {

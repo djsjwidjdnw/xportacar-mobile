@@ -204,6 +204,13 @@ const en: Dict = {
   "won.share":          "Share invoice summary",
   "won.backMarket":     "Back to marketplace",
   "won.viewVehicle":    "View vehicle",
+
+  // Order-status timeline (sold → picked_up → in_transit → delivered)
+  "timeline.orderStatus": "Order status",
+  "timeline.sold":        "Sold",
+  "timeline.pickedUp":    "Picked Up",
+  "timeline.inTransit":   "In Transit",
+  "timeline.delivered":   "Delivered",
 };
 
 const de: Dict = {
@@ -391,6 +398,12 @@ const de: Dict = {
   "won.share":          "Rechnung teilen",
   "won.backMarket":     "Zum Marktplatz",
   "won.viewVehicle":    "Fahrzeug ansehen",
+
+  "timeline.orderStatus": "Bestellstatus",
+  "timeline.sold":        "Verkauft",
+  "timeline.pickedUp":    "Abgeholt",
+  "timeline.inTransit":   "Im Transit",
+  "timeline.delivered":   "Geliefert",
 };
 
 const fr: Dict = {
@@ -578,6 +591,12 @@ const fr: Dict = {
   "won.share":          "Partager la facture",
   "won.backMarket":     "Retour au marché",
   "won.viewVehicle":    "Voir le véhicule",
+
+  "timeline.orderStatus": "Statut de la commande",
+  "timeline.sold":        "Vendu",
+  "timeline.pickedUp":    "Récupéré",
+  "timeline.inTransit":   "En transit",
+  "timeline.delivered":   "Livré",
 };
 
 const ar: Dict = {
@@ -765,6 +784,12 @@ const ar: Dict = {
   "won.share":          "شارك ملخص الفاتورة",
   "won.backMarket":     "العودة إلى السوق",
   "won.viewVehicle":    "عرض المركبة",
+
+  "timeline.orderStatus": "حالة الطلب",
+  "timeline.sold":        "تم البيع",
+  "timeline.pickedUp":    "تم الاستلام",
+  "timeline.inTransit":   "قيد الشحن",
+  "timeline.delivered":   "تم التسليم",
 };
 
 const DICTS: Record<Locale, Dict> = { en, de, ar, fr };
