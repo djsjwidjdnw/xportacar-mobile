@@ -1,11 +1,35 @@
 import { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
+import Constants from "expo-constants";
 
 import { Button } from "../components/Button";
 import { KeyboardAwareScroll } from "../components/KeyboardAwareScroll";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 import { registerForPush } from "../lib/push";
+
+// Web origin for the welcome-email bridge. Ships in the OTA manifest (extra).
+const WEB_URL =
+  (Constants.expoConfig?.extra as { webUrl?: string } | undefined)?.webUrl ??
+  "https://xportacar.com";
+
+// The handle_new_user trigger normally creates the profile row atomically with
+// the auth user, but be resilient: retry-read briefly, then upsert as a
+// fallback (works thanks to the profiles self-insert RLS policy). Keeps account
+// setup invisible to the user instead of surfacing a transient "not found".
+async function ensureProfile(
+  userId: string,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    const { data } = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
+    if (data) return;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  try {
+    await supabase.from("profiles").upsert({ id: userId, ...fields }, { onConflict: "id" });
+  } catch { /* belt-and-braces — never block signup on this */ }
+}
 
 export function RegisterScreen({ navigation }: { navigation: { goBack: () => void } }) {
   const [fullName, setFullName] = useState("");
@@ -28,37 +52,73 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
       Alert.alert("Weak password", "Use at least 8 characters.");
       return;
     }
+
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { data: { full_name: fullName, company_name: company, country, role: "buyer" } },
-    });
-    setLoading(false);
-    if (error) {
-      Alert.alert("Couldn't sign up", error.message);
-      return;
-    }
-    // Belt-and-braces upsert profile.
-    if (data.user) {
-      await supabase.from("profiles").upsert({
-        id:           data.user.id,
-        email:        email.trim(),
-        full_name:    fullName,
+    try {
+      const cleanEmail = email.trim();
+      const { data: signUp, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: { data: { full_name: fullName, company_name: company, country, role: "buyer" } },
+      });
+
+      let session = signUp?.session ?? null;
+      let user = signUp?.user ?? null;
+
+      // The first network call on a cold install can fail client-side even when
+      // the account WAS created server-side (this produced the misleading
+      // "network connection" error). If signUp errored or returned no session,
+      // try to sign in — recovers the account silently.
+      if (signUpError || !session) {
+        const { data: signIn } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+        if (signIn?.session) {
+          session = signIn.session;
+          user = signIn.user;
+        }
+      }
+
+      // Genuine failure (no account created and couldn't sign in).
+      if (!user) {
+        Alert.alert(
+          "Couldn't create your account",
+          signUpError?.message ?? "Please check your connection and try again.",
+        );
+        return;
+      }
+
+      // Make sure the profile row exists before we proceed (invisible to user).
+      await ensureProfile(user.id, {
+        email: cleanEmail,
+        full_name: fullName,
         company_name: company || null,
-        country:      country || null,
-        role:         "buyer",
-        kyc_status:   "pending",
-      }, { onConflict: "id" });
-    }
-    if (data.session) {
-      // Push is best-effort — Expo Go SDK 53+ removed push token support
-      // so wrap defensively so a sync throw can't take the app down.
-      try { void registerForPush().catch(() => {}); } catch { /* silent */ }
-      Alert.alert("Welcome to XportACar", "Your trade account is live.");
-    } else {
-      Alert.alert("Check your email", "Confirm your email to finish signing up.");
-      navigation.goBack();
+        country: country || null,
+        role: "buyer",
+        kyc_status: "pending",
+      });
+
+      if (session) {
+        // Trigger the welcome email server-side (best-effort, never blocks).
+        try {
+          await fetch(`${WEB_URL}/api/notify/signup`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: "{}",
+          });
+        } catch { /* best-effort — email must never block signup */ }
+
+        try { void registerForPush().catch(() => {}); } catch { /* silent */ }
+        Alert.alert("Welcome to XportACar", "Your trade account is live.");
+        // RootNavigator switches to the app automatically (session is set).
+      } else {
+        // Email confirmation is required (no session yet).
+        Alert.alert("Check your email", "Confirm your email to finish signing up.");
+        navigation.goBack();
+      }
+    } finally {
+      setLoading(false);
     }
   };
 

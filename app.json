@@ -64,6 +64,7 @@
     "extra": {
       "supabaseUrl": "https://klettmjnnttajdyajafn.supabase.co",
       "supabaseAnonKey": "sb_publishable_rawIwWZv12q9_VxVuaMOWQ_A2oXTEJ_",
+      "webUrl": "https://xportacar.com",
       "eas": {
         "projectId": "3ae9c449-fd73-4fce-a53c-27c831052358"
       }
