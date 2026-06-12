@@ -201,7 +201,7 @@ export function VehicleDetailScreen({
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text>
+          <Text style={styles.title}>{`${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.trim ? " " + vehicle.trim : ""}`}</Text>
           <Text style={styles.subtitle}>
             {vehicle.exterior_color} · {vehicle.interior_color} · {vehicle.location_city}, {vehicle.location_country}
           </Text>
@@ -476,7 +476,7 @@ function InspectionReportModal({
           <View style={{ flex: 1 }}>
             <Text style={styles.reportEyebrow}>Inspection report</Text>
             <Text style={styles.reportTitle} numberOfLines={1}>
-              {vehicle.year} {vehicle.make} {vehicle.model}
+              {`${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.trim ? " " + vehicle.trim : ""}`}
             </Text>
           </View>
           <Pressable onPress={onClose} hitSlop={10} style={styles.reportClose} accessibilityLabel="Close report">

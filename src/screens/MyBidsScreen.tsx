@@ -27,6 +27,7 @@ interface BidWithAuction {
       year: number;
       make: string;
       model: string;
+      trim?: string | null;
       vehicle_photos?: { url: string; sort_order: number; caption: string | null; category: string | null }[];
     } | null;
   } | null;
@@ -50,7 +51,7 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
         auction:auctions!auction_id (
           id, current_bid_eur, status, end_time, winner_id,
           vehicle:vehicles!vehicle_id (
-            id, year, make, model,
+            id, year, make, model, trim,
             vehicle_photos (url, sort_order, caption, category)
           )
         )
@@ -140,7 +141,7 @@ export function MyBidsScreen({ navigation }: { navigation: { navigate: (s: strin
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title}>
-                    {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}` : "—"}
+                    {a.vehicle ? `${a.vehicle.year} ${a.vehicle.make} ${a.vehicle.model}${a.vehicle.trim ? " " + a.vehicle.trim : ""}` : "—"}
                   </Text>
                   <Text style={styles.sub}>
                     {t("bids.topAndCurr", { top: formatEur(item.amount_eur), current: formatEur(a.current_bid_eur ?? 0) })}

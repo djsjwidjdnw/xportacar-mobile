@@ -142,7 +142,7 @@ export function LiveAuctionCard({
       <View style={styles.infoRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title} numberOfLines={1}>
-            {vehicle.year} {vehicle.make} {vehicle.model}
+            {`${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.trim ? " " + vehicle.trim : ""}`}
           </Text>
           <Text style={styles.subtitle} numberOfLines={1}>
             {vehicle.exterior_color ?? "—"} · {vehicle.location_city}

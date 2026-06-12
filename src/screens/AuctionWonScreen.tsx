@@ -338,7 +338,7 @@ export function AuctionWonScreen({
           {isWinner ? "You won this auction." : "This auction has closed."}
         </Text>
         <Text style={styles.heroVehicle}>
-          {v.year} {v.make} {v.model}
+          {`${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}`}
         </Text>
         <Text style={styles.heroPrice}>{format(hammerEur)}</Text>
       </LinearGradient>
@@ -427,7 +427,7 @@ export function AuctionWonScreen({
             <View style={{ flex: 1 }}>
               <Text style={styles.invLabel}>Vehicle</Text>
               <Text style={styles.invValue}>
-                {v.year} {v.make} {v.model}
+                {`${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}`}
               </Text>
               <Text style={styles.invMeta}>VIN {v.vin} · {v.location_city}, {v.location_country}</Text>
             </View>
@@ -552,7 +552,7 @@ export function AuctionWonScreen({
           <Pressable
             onPress={() => {
               void Share.share({
-                message: `XportACar invoice — ${v.year} ${v.make} ${v.model}\nTotal due: ${format(totalEur)}\nConfirm within 36h; then pay within 5 working days.`,
+                message: `XportACar invoice — ${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}\nTotal due: ${format(totalEur)}\nConfirm within 36h; then pay within 5 working days.`,
               });
             }}
             style={({ pressed }) => [styles.shareBtn, pressed && { opacity: 0.9 }]}

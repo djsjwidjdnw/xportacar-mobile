@@ -12,6 +12,7 @@ export interface VehicleRow {
   vin: string;
   make: string;
   model: string;
+  trim?: string | null;
   year: number;
   mileage_km: number;
   fuel_type: string;
