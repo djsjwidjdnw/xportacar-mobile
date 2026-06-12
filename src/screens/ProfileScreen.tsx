@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 // ScrollView is used twice in this file: the outer page wrapper + a
 // horizontal one for the recent-bids carousel.
@@ -53,6 +53,11 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
 
   const [bids, setBids] = useState<RecentBid[]>([]);
 
+  // Account deletion modal
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     if (!user) { setLoading(false); return; }
     (async () => {
@@ -99,6 +104,24 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       { text: "Cancel", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: () => { void signOut(); } },
     ]);
+  };
+
+  const deleteAccount = async () => {
+    if (deleteConfirm !== "DELETE" || deleting) return;
+    setDeleting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-my-account", { body: {} });
+      if (error || (data as { ok?: boolean } | null)?.ok === false) {
+        Alert.alert(t("deleteAccount.title"), t("deleteAccount.failed"));
+        return;
+      }
+      Alert.alert(t("deleteAccount.title"), t("deleteAccount.success"));
+      await signOut();
+    } catch {
+      Alert.alert(t("deleteAccount.title"), t("deleteAccount.failed"));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (!user) {
@@ -347,8 +370,91 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         <Text style={styles.signOutText}>{t("nav.signOut")}</Text>
       </Pressable>
 
+      {/* Delete account — destructive */}
+      <Pressable
+        onPress={() => { setDeleteConfirm(""); setDeleteOpen(true); }}
+        style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
+      >
+        <Ionicons name="trash-outline" size={16} color={theme.colors.error} />
+        <Text style={styles.deleteBtnText}>{t("deleteAccount.button")}</Text>
+      </Pressable>
+
       <Text style={styles.versionText}>XportACar · v1.0.0</Text>
       </ScrollView>
+
+      {/* Delete account confirmation modal */}
+      <Modal
+        visible={deleteOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!deleting) setDeleteOpen(false); }}
+      >
+        <KeyboardAvoidingView
+          style={styles.delBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.delSheet}>
+            <View style={styles.delHeader}>
+              <View style={styles.delIconWrap}>
+                <Ionicons name="warning-outline" size={22} color={theme.colors.error} />
+              </View>
+              <Text style={styles.delTitle}>{t("deleteAccount.title")}</Text>
+              <Pressable onPress={() => { if (!deleting) setDeleteOpen(false); }} hitSlop={10} disabled={deleting}>
+                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.delWarning}>{t("deleteAccount.warning")}</Text>
+
+            <Text style={styles.delLoseIntro}>{t("deleteAccount.loseIntro")}</Text>
+            <View style={styles.delBullet}>
+              <Ionicons name="ellipse" size={5} color={theme.colors.textMuted} />
+              <Text style={styles.delBulletText}>{t("deleteAccount.loseBids")}</Text>
+            </View>
+            <View style={styles.delBullet}>
+              <Ionicons name="ellipse" size={5} color={theme.colors.textMuted} />
+              <Text style={styles.delBulletText}>{t("deleteAccount.loseInvoices")}</Text>
+            </View>
+
+            <Text style={styles.delCannotUndo}>{t("deleteAccount.cannotUndo")}</Text>
+
+            <Text style={styles.delInputLabel}>{t("deleteAccount.typeToConfirm")}</Text>
+            <TextInput
+              value={deleteConfirm}
+              onChangeText={setDeleteConfirm}
+              placeholder="DELETE"
+              placeholderTextColor={theme.colors.textLight}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!deleting}
+              style={styles.delInput}
+            />
+
+            <Pressable
+              onPress={deleteAccount}
+              disabled={deleteConfirm !== "DELETE" || deleting}
+              style={({ pressed }) => [
+                styles.delConfirmBtn,
+                (deleteConfirm !== "DELETE" || deleting) && { opacity: 0.5 },
+                pressed && { opacity: 0.9 },
+              ]}
+            >
+              {deleting && <ActivityIndicator size="small" color={theme.colors.white} />}
+              <Text style={styles.delConfirmText}>
+                {deleting ? t("deleteAccount.deleting") : t("deleteAccount.confirm")}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => { if (!deleting) setDeleteOpen(false); }}
+              disabled={deleting}
+              style={({ pressed }) => [styles.delCancelBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.delCancelText}>{t("deleteAccount.cancel")}</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -506,6 +612,35 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.errorBg,
   },
   signOutText: { color: theme.colors.error, fontSize: 14, fontWeight: "800" },
+
+  // Delete account (text-style destructive link)
+  deleteBtn: {
+    marginHorizontal: 16, marginTop: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    height: 44,
+  },
+  deleteBtnText: { color: theme.colors.error, fontSize: 13, fontWeight: "800" },
+
+  // Delete account modal
+  delBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 20 },
+  delSheet: { backgroundColor: theme.colors.white, borderRadius: 20, padding: 20, gap: 12 },
+  delHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  delIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.errorBg, alignItems: "center", justifyContent: "center" },
+  delTitle: { flex: 1, fontSize: 17, fontWeight: "800", color: theme.colors.text },
+  delWarning: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 19 },
+  delLoseIntro: { fontSize: 13, fontWeight: "800", color: theme.colors.text, marginTop: 2 },
+  delBullet: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 4 },
+  delBulletText: { flex: 1, fontSize: 13, color: theme.colors.textMuted },
+  delCannotUndo: { fontSize: 13, fontWeight: "800", color: theme.colors.error, marginTop: 4 },
+  delInputLabel: { fontSize: 11, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 },
+  delInput: { height: 46, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 14, color: theme.colors.text, fontSize: 14, backgroundColor: theme.colors.white },
+  delConfirmBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 48, borderRadius: theme.radius.lg, backgroundColor: theme.colors.error, marginTop: 4,
+  },
+  delConfirmText: { color: theme.colors.white, fontWeight: "800", fontSize: 15 },
+  delCancelBtn: { height: 44, alignItems: "center", justifyContent: "center" },
+  delCancelText: { color: theme.colors.textMuted, fontWeight: "800", fontSize: 14 },
 
   versionText: { textAlign: "center", marginTop: 18, fontSize: 11, color: theme.colors.textLight, fontWeight: "600" },
 
