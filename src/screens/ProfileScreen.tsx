@@ -58,6 +58,15 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  // Change-password modal
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwShowNew, setPwShowNew] = useState(false);
+  const [pwShowConfirm, setPwShowConfirm] = useState(false);
+  const [pwSaving, setPwSaving] = useState(false);
+
   useEffect(() => {
     if (!user) { setLoading(false); return; }
     (async () => {
@@ -104,6 +113,42 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       { text: "Cancel", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: () => { void signOut(); } },
     ]);
+  };
+
+  const openChangePw = () => {
+    setPwCurrent(""); setPwNew(""); setPwConfirm("");
+    setPwShowNew(false); setPwShowConfirm(false);
+    setPwOpen(true);
+  };
+
+  const changePassword = async () => {
+    if (pwSaving) return;
+    if (!user?.email) return;
+    if (pwNew.length < 8) { Alert.alert(t("pw.change"), t("pw.tooShort")); return; }
+    if (pwNew !== pwConfirm) { Alert.alert(t("pw.change"), t("pw.noMatch")); return; }
+    setPwSaving(true);
+    try {
+      // Re-verify the current password before allowing a change.
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: pwCurrent,
+      });
+      if (signInErr) {
+        Alert.alert(t("pw.change"), t("pw.currentWrong"));
+        return;
+      }
+      const { error: updateErr } = await supabase.auth.updateUser({ password: pwNew });
+      if (updateErr) {
+        Alert.alert(t("pw.change"), t("pw.changeFailed"));
+        return;
+      }
+      setPwOpen(false);
+      Alert.alert(t("pw.change"), t("pw.changed"));
+    } catch {
+      Alert.alert(t("pw.change"), t("pw.changeFailed"));
+    } finally {
+      setPwSaving(false);
+    }
   };
 
   const deleteAccount = async () => {
@@ -361,6 +406,15 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         })}
       </View>
 
+      {/* Change password */}
+      <Pressable
+        onPress={openChangePw}
+        style={({ pressed }) => [styles.changePwBtn, pressed && { opacity: 0.92 }]}
+      >
+        <Ionicons name="key-outline" size={18} color={theme.colors.brand} />
+        <Text style={styles.changePwText}>{t("pw.change")}</Text>
+      </Pressable>
+
       {/* Sign out — destructive red */}
       <Pressable
         onPress={confirmSignOut}
@@ -451,6 +505,93 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
               style={({ pressed }) => [styles.delCancelBtn, pressed && { opacity: 0.7 }]}
             >
               <Text style={styles.delCancelText}>{t("deleteAccount.cancel")}</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Change-password modal */}
+      <Modal
+        visible={pwOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!pwSaving) setPwOpen(false); }}
+      >
+        <KeyboardAvoidingView
+          style={styles.delBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.delSheet}>
+            <View style={styles.delHeader}>
+              <View style={styles.pwIconWrap}>
+                <Ionicons name="key-outline" size={20} color={theme.colors.brand} />
+              </View>
+              <Text style={styles.delTitle}>{t("pw.change")}</Text>
+              <Pressable onPress={() => { if (!pwSaving) setPwOpen(false); }} hitSlop={10} disabled={pwSaving}>
+                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.delInputLabel}>{t("pw.current")}</Text>
+            <TextInput
+              value={pwCurrent}
+              onChangeText={setPwCurrent}
+              secureTextEntry
+              autoCapitalize="none"
+              autoComplete="current-password"
+              editable={!pwSaving}
+              style={styles.delInput}
+            />
+
+            <Text style={styles.delInputLabel}>{t("pw.new")}</Text>
+            <View style={styles.pwRow}>
+              <TextInput
+                value={pwNew}
+                onChangeText={setPwNew}
+                secureTextEntry={!pwShowNew}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                editable={!pwSaving}
+                style={[styles.delInput, styles.pwInput]}
+              />
+              <Pressable onPress={() => setPwShowNew((v) => !v)} hitSlop={8} style={styles.pwEyeBtn}>
+                <Ionicons name={pwShowNew ? "eye-off-outline" : "eye-outline"} size={20} color={theme.colors.textLight} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.delInputLabel}>{t("pw.confirm")}</Text>
+            <View style={styles.pwRow}>
+              <TextInput
+                value={pwConfirm}
+                onChangeText={setPwConfirm}
+                secureTextEntry={!pwShowConfirm}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                editable={!pwSaving}
+                style={[styles.delInput, styles.pwInput]}
+              />
+              <Pressable onPress={() => setPwShowConfirm((v) => !v)} hitSlop={8} style={styles.pwEyeBtn}>
+                <Ionicons name={pwShowConfirm ? "eye-off-outline" : "eye-outline"} size={20} color={theme.colors.textLight} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.pwHint}>{t("pw.min8")}</Text>
+
+            <Pressable
+              onPress={changePassword}
+              disabled={pwSaving}
+              style={({ pressed }) => [styles.pwSaveBtn, pwSaving && { opacity: 0.6 }, pressed && { opacity: 0.9 }]}
+            >
+              {pwSaving && <ActivityIndicator size="small" color={theme.colors.white} />}
+              <Text style={styles.pwSaveText}>{t("pw.save")}</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => { if (!pwSaving) setPwOpen(false); }}
+              disabled={pwSaving}
+              style={({ pressed }) => [styles.delCancelBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.delCancelText}>{t("pw.cancel")}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -605,13 +746,35 @@ const styles = StyleSheet.create({
 
   // Sign out
   signOutBtn: {
-    marginHorizontal: 16, marginTop: 24,
+    marginHorizontal: 16, marginTop: 12,
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     height: 50, borderRadius: theme.radius.lg,
     borderWidth: 1, borderColor: "#fda29b",
     backgroundColor: theme.colors.errorBg,
   },
   signOutText: { color: theme.colors.error, fontSize: 14, fontWeight: "800" },
+
+  // Change password button
+  changePwBtn: {
+    marginHorizontal: 16, marginTop: 24,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 50, borderRadius: theme.radius.lg,
+    borderWidth: 1, borderColor: theme.colors.border,
+    backgroundColor: theme.colors.white,
+  },
+  changePwText: { color: theme.colors.brand, fontSize: 14, fontWeight: "800" },
+
+  // Change password modal extras
+  pwIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.brandLight, alignItems: "center", justifyContent: "center" },
+  pwRow: { justifyContent: "center" },
+  pwInput: { paddingRight: 48 },
+  pwEyeBtn: { position: "absolute", right: 8, padding: 8 },
+  pwHint: { fontSize: 12, color: theme.colors.textLight, fontWeight: "600", marginTop: 2 },
+  pwSaveBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 48, borderRadius: theme.radius.lg, backgroundColor: theme.colors.brand, marginTop: 4,
+  },
+  pwSaveText: { color: theme.colors.white, fontWeight: "800", fontSize: 15 },
 
   // Delete account (text-style destructive link)
   deleteBtn: {

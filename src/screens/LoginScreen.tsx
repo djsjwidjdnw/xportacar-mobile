@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -17,6 +19,12 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Forgot-password modal
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetSending, setResetSending] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
   const signIn = async () => {
     if (!email || !password) {
       Alert.alert("Missing info", t("auth.missing"));
@@ -30,6 +38,31 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
       return;
     }
     try { void registerForPush().catch(() => {}); } catch { /* silent */ }
+  };
+
+  const openReset = () => {
+    setResetEmail(email.trim());
+    setResetSent(false);
+    setResetOpen(true);
+  };
+
+  const sendReset = async () => {
+    if (resetSending) return;
+    const addr = resetEmail.trim();
+    if (!addr) {
+      Alert.alert(t("pw.resetTitle"), t("pw.emailRequired"));
+      return;
+    }
+    setResetSending(true);
+    // Ignore the error detail — show the neutral "sent" message either way so we
+    // don't leak whether an account exists for this email.
+    try {
+      await supabase.auth.resetPasswordForEmail(addr, {
+        redirectTo: "https://xportacar.com/reset-password/callback",
+      });
+    } catch { /* neutral — show sent regardless */ }
+    setResetSending(false);
+    setResetSent(true);
   };
 
   return (
@@ -76,6 +109,10 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
           </View>
         </Field>
 
+        <Pressable onPress={openReset} hitSlop={8} style={styles.forgotBtn}>
+          <Text style={styles.forgotText}>{t("pw.forgot")}</Text>
+        </Pressable>
+
         {/* Gradient sign-in button */}
         <GradientButton
           label={loading ? t("auth.signingIn") : t("auth.signIn")}
@@ -89,6 +126,74 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
           onPress={() => navigation.navigate("Register")}
           style={{ marginTop: 4 }}
         />
+
+      {/* Forgot-password modal */}
+      <Modal
+        visible={resetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!resetSending) setResetOpen(false); }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconWrap}>
+                <Ionicons name="lock-closed-outline" size={20} color={theme.colors.brand} />
+              </View>
+              <Text style={styles.modalTitle}>{t("pw.resetTitle")}</Text>
+              <Pressable onPress={() => { if (!resetSending) setResetOpen(false); }} hitSlop={10} disabled={resetSending}>
+                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              </Pressable>
+            </View>
+
+            {resetSent ? (
+              <>
+                <Text style={styles.modalBody}>{t("pw.sent")}</Text>
+                <Pressable
+                  onPress={() => setResetOpen(false)}
+                  style={({ pressed }) => [styles.modalPrimaryBtn, pressed && { opacity: 0.9 }]}
+                >
+                  <Text style={styles.modalPrimaryText}>{t("auth.backToSignIn")}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalBody}>{t("pw.resetBody")}</Text>
+                <Text style={styles.modalLabel}>{t("auth.email")}</Text>
+                <TextInput
+                  value={resetEmail}
+                  onChangeText={setResetEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  placeholder="you@company.com"
+                  placeholderTextColor={theme.colors.textLight}
+                  editable={!resetSending}
+                  style={styles.modalInput}
+                />
+                <Pressable
+                  onPress={sendReset}
+                  disabled={resetSending}
+                  style={({ pressed }) => [styles.modalPrimaryBtn, resetSending && { opacity: 0.6 }, pressed && { opacity: 0.9 }]}
+                >
+                  {resetSending && <ActivityIndicator size="small" color={theme.colors.white} />}
+                  <Text style={styles.modalPrimaryText}>{t("pw.sendLink")}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => { if (!resetSending) setResetOpen(false); }}
+                  disabled={resetSending}
+                  style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.modalCancelText}>{t("pw.cancel")}</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAwareScroll>
   );
 }
@@ -151,4 +256,24 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   gradientBtnLabel: { color: theme.colors.white, fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
+
+  forgotBtn:  { alignSelf: "flex-end", marginTop: -4, marginBottom: 4, paddingVertical: 4 },
+  forgotText: { fontSize: 13, fontWeight: "700", color: theme.colors.brand },
+
+  // Forgot-password modal
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 20 },
+  modalSheet: { backgroundColor: theme.colors.white, borderRadius: 20, padding: 20, gap: 12 },
+  modalHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  modalIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.brandLight, alignItems: "center", justifyContent: "center" },
+  modalTitle: { flex: 1, fontSize: 17, fontWeight: "800", color: theme.colors.text },
+  modalBody: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 19 },
+  modalLabel: { fontSize: 11, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 },
+  modalInput: { height: 48, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 14, color: theme.colors.text, fontSize: 15, backgroundColor: theme.colors.bgAlt },
+  modalPrimaryBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    height: 48, borderRadius: theme.radius.lg, backgroundColor: theme.colors.brand, marginTop: 4,
+  },
+  modalPrimaryText: { color: theme.colors.white, fontWeight: "800", fontSize: 15 },
+  modalCancelBtn: { height: 44, alignItems: "center", justifyContent: "center" },
+  modalCancelText: { color: theme.colors.textMuted, fontWeight: "800", fontSize: 14 },
 });
