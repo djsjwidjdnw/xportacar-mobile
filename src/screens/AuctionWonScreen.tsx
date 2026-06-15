@@ -7,6 +7,9 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 
 import { Spinner } from "../components/Spinner";
 import { CurrencyPills } from "../components/CurrencyPills";
@@ -270,27 +273,45 @@ export function AuctionWonScreen({
   //  • Share   → the built-in React Native Share sheet with the PDF { url }.
   const invoicePdfUrl = invoice ? `${WEB_URL}/api/invoice/${invoice.id}/pdf` : null;
 
-  const downloadPdf = async () => {
+  // View the invoice in an in-app browser (expo-web-browser); fall back to the
+  // system browser if it's unavailable.
+  const viewPdf = async () => {
     if (!invoicePdfUrl) return;
     try {
-      const ok = await Linking.canOpenURL(invoicePdfUrl);
-      if (!ok) { Alert.alert(t("won.cantOpenTitle"), t("won.cantOpenBody")); return; }
-      await Linking.openURL(invoicePdfUrl);
+      await WebBrowser.openBrowserAsync(invoicePdfUrl);
     } catch {
-      Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody"));
+      try {
+        await Linking.openURL(invoicePdfUrl);
+      } catch {
+        Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody"));
+      }
     }
   };
 
+  // Share the ACTUAL PDF file: download it to the cache, then hand the local
+  // file to the system share sheet with a PDF mime type (so Mail / WhatsApp /
+  // AirDrop / Files show a real PDF, not a text link). Falls back to a URL
+  // share if file sharing isn't available or the download fails.
   const sharePdf = async () => {
-    if (!invoicePdfUrl) return;
+    if (!invoicePdfUrl || !invoice) return;
     try {
-      await Share.share({
-        // iOS uses `url`, Android uses `message`; provide both for coverage.
-        url: invoicePdfUrl,
-        message: t("won.sharePdfMessage", { url: invoicePdfUrl }),
-      });
+      if (await Sharing.isAvailableAsync()) {
+        const target = `${FileSystem.cacheDirectory}invoice-${invoice.id}.pdf`;
+        const { uri } = await FileSystem.downloadAsync(invoicePdfUrl, target);
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          UTI: "com.adobe.pdf",
+          dialogTitle: t("won.sharePdf"),
+        });
+        return;
+      }
     } catch {
-      // User dismissed the share sheet — no action needed.
+      // fall through to the URL share
+    }
+    try {
+      await Share.share({ url: invoicePdfUrl, message: t("won.sharePdfMessage", { url: invoicePdfUrl }) });
+    } catch {
+      // user dismissed the share sheet
     }
   };
 
@@ -459,7 +480,7 @@ export function AuctionWonScreen({
         {invoicePdfUrl && (
           <View style={styles.pdfRow}>
             <Pressable
-              onPress={downloadPdf}
+              onPress={viewPdf}
               style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
             >
               <Ionicons name="eye-outline" size={16} color={theme.colors.brand} />
