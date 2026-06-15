@@ -101,15 +101,19 @@ export function getShippingPriceEur(choice: ShippingChoice, rates: ShippingRate[
   return getMethodPriceEur(choice.method, rates) + (choice.tuv ? tuvPriceEur(rates) : 0);
 }
 
-export function describeMethod(method: ShippingMethod): string {
+// Localised via a passed-in t() — these are plain module functions (no hook),
+// so callers in components thread their useTranslation t through.
+type TFn = (key: string, values?: Record<string, string | number>) => string;
+
+export function describeMethod(method: ShippingMethod, t: TFn): string {
   switch (method.kind) {
-    case "warehouse": return "Warehouse Pickup (Dubai)";
-    case "port":      return `Nearest Port — ${method.port}`;
-    case "door":      return "Door-to-Door Delivery";
+    case "warehouse": return t("shipping.warehousePickup");
+    case "port":      return t("shipping.nearestPortNamed", { port: method.port });
+    case "door":      return t("shipping.doorToDoor");
   }
 }
 
-export function describeShipping(choice: ShippingChoice): string {
-  const base = describeMethod(choice.method);
-  return choice.tuv ? `${base} + German Registration (TÜV)` : base;
+export function describeShipping(choice: ShippingChoice, t: TFn): string {
+  const base = describeMethod(choice.method, t);
+  return choice.tuv ? t("shipping.withTuv", { base }) : base;
 }

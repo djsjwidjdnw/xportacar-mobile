@@ -156,9 +156,9 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
   }, [tab, items, liveItems, query, filters]);
 
   const onToggle = async (vehicleId: string) => {
-    if (!user) { Alert.alert("Sign in required", t("watchlist.signin")); return; }
+    if (!user) { Alert.alert(t("watchlist.signInRequired"), t("watchlist.signin")); return; }
     const result = await toggleWatch(vehicleId);
-    if (result === "error") Alert.alert("Couldn't update watchlist");
+    if (result === "error") Alert.alert(t("watchlist.cantUpdate"));
   };
 
   if (loading) return <Spinner label={`${t("marketplace.title")}…`} />;
@@ -169,7 +169,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           within one thumb scroll. */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topBarText} numberOfLines={1}>
-          Premium GCC Vehicles — {items.length} available, {liveItems.length} live
+          {t("marketplace.headerBar", { count: items.length, live: liveItems.length })}
         </Text>
       </View>
       <FlatList

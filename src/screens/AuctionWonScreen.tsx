@@ -44,16 +44,18 @@ function formatDeadline(date: Date): string {
 }
 
 // Live "X days, Y hours" countdown until the payment deadline.
-function formatCountdownToDeadline(deadline: Date, now: Date): string {
+type TFn = (key: string, values?: Record<string, string | number>) => string;
+
+function formatCountdownToDeadline(deadline: Date, now: Date, t: TFn): string {
   const ms = deadline.getTime() - now.getTime();
-  if (ms <= 0) return "Payment overdue";
+  if (ms <= 0) return t("won.overdue");
   const totalHours = Math.floor(ms / 3600_000);
   const days  = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
   const mins  = Math.floor((ms % 3600_000) / 60_000);
-  if (days > 0)  return `${days} day${days === 1 ? "" : "s"}, ${hours}h remaining`;
-  if (hours > 0) return `${hours}h ${mins}m remaining`;
-  return `${mins}m remaining`;
+  if (days > 0)  return t("won.remainingDays", { days, hours });
+  if (hours > 0) return t("won.remainingHours", { hours, mins });
+  return t("won.remainingMins", { mins });
 }
 
 const PLATFORM_FEE_PCT = 0.029;
@@ -189,7 +191,7 @@ export function AuctionWonScreen({
 
   const addImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Alert.alert("Photos disabled", "Allow photo access in Settings to attach proof."); return; }
+    if (!perm.granted) { Alert.alert(t("won.photosDisabledTitle"), t("won.photosDisabledBody")); return; }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (res.canceled || !res.assets?.[0]) return;
     const a = res.assets[0];
@@ -205,15 +207,15 @@ export function AuctionWonScreen({
 
   const addProof = (f: ProofFile) => {
     if (!PROOF_ALLOWED_EXT.test(f.name) && !PROOF_ALLOWED_MIME.includes((f.mimeType || "").toLowerCase())) {
-      Alert.alert("Unsupported file", `${f.name}: only PDF, PNG and JPG are allowed.`); return;
+      Alert.alert(t("won.unsupportedFileTitle"), t("won.unsupportedFileBody", { name: f.name })); return;
     }
-    if (f.size && f.size > MAX_BYTES) { Alert.alert("File too large", `${f.name} is larger than 10MB.`); return; }
+    if (f.size && f.size > MAX_BYTES) { Alert.alert(t("won.fileTooLargeTitle"), t("won.fileTooLargeBody", { name: f.name })); return; }
     setProofFiles((arr) => (arr.length >= MAX_FILES ? arr : [...arr, f]));
   };
 
   const submitProof = async () => {
     if (!invoice) return;
-    if (proofFiles.length === 0) { Alert.alert("Attach proof", "Add at least one payment proof file."); return; }
+    if (proofFiles.length === 0) { Alert.alert(t("won.attachProofTitle"), t("won.attachProofBody")); return; }
     setSubmitting(true);
     try {
       // Private "payment-proofs" bucket. Path = {invoice_id}/{file} so the
@@ -229,7 +231,7 @@ export function AuctionWonScreen({
         // the real bytes into an ArrayBuffer first (works for PDF + images; no
         // expo-file-system needed, so this stays OTA-safe).
         const bytes = new Uint8Array(await (await fetch(f.uri)).arrayBuffer());
-        if (bytes.byteLength === 0) throw new Error(`"${f.name}" came through empty — re-select the file and try again.`);
+        if (bytes.byteLength === 0) throw new Error(t("won.fileEmptyReselect", { name: f.name }));
         const { error: upErr } = await supabase.storage.from("payment-proofs")
           .upload(key, bytes, { contentType: proofContentType(f), upsert: false });
         if (upErr) throw upErr;
@@ -240,7 +242,7 @@ export function AuctionWonScreen({
         const storedSize = (listed?.find((o) => o.name === fname)?.metadata as { size?: number } | undefined)?.size;
         if (storedSize === 0) {
           await supabase.storage.from("payment-proofs").remove([key]).catch(() => {});
-          throw new Error(`"${f.name}" uploaded empty — please try again.`);
+          throw new Error(t("won.fileUploadedEmpty", { name: f.name }));
         }
         uploaded.push({ path: key, filename: f.name, uploaded_at: new Date().toISOString() });
       }
@@ -252,9 +254,9 @@ export function AuctionWonScreen({
       setProofFiles([]);
       setProofNote("");
       await loadInvoice();
-      Alert.alert("Payment proof submitted", "Our team will verify receipt. You now have 5 working days to complete the wire.");
+      Alert.alert(t("won.proofSubmittedTitle"), t("won.proofSubmittedBody", { days: PAYMENT_WORKING_DAYS }));
     } catch (e) {
-      Alert.alert("Couldn't submit", (e as Error).message ?? "Try again.");
+      Alert.alert(t("won.submitFailedTitle"), (e as Error).message ?? t("auction.tryAgain"));
     } finally {
       setSubmitting(false);
     }
@@ -272,10 +274,10 @@ export function AuctionWonScreen({
     if (!invoicePdfUrl) return;
     try {
       const ok = await Linking.canOpenURL(invoicePdfUrl);
-      if (!ok) { Alert.alert("Can't open", "No app available to open the PDF link."); return; }
+      if (!ok) { Alert.alert(t("won.cantOpenTitle"), t("won.cantOpenBody")); return; }
       await Linking.openURL(invoicePdfUrl);
     } catch {
-      Alert.alert("Couldn't open invoice", "Try again, or use Share to send the link.");
+      Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody"));
     }
   };
 
@@ -285,16 +287,16 @@ export function AuctionWonScreen({
       await Share.share({
         // iOS uses `url`, Android uses `message`; provide both for coverage.
         url: invoicePdfUrl,
-        message: `XportACar invoice — download the PDF: ${invoicePdfUrl}`,
+        message: t("won.sharePdfMessage", { url: invoicePdfUrl }),
       });
     } catch {
       // User dismissed the share sheet — no action needed.
     }
   };
 
-  if (loading) return <Spinner label="Loading your invoice…" />;
+  if (loading) return <Spinner label={t("won.loadingInvoice")} />;
   if (!auction || !auction.vehicle) {
-    return <View style={styles.center}><Text>Auction not found.</Text></View>;
+    return <View style={styles.center}><Text>{t("auction.notFound")}</Text></View>;
   }
 
   const hammerEur = auction.current_bid_eur ?? auction.starting_price_eur ?? 0;
@@ -333,9 +335,9 @@ export function AuctionWonScreen({
         <View style={styles.trophyWrap}>
           <Ionicons name="trophy" size={36} color={theme.colors.white} />
         </View>
-        <Text style={styles.heroTitle}>Congratulations!</Text>
+        <Text style={styles.heroTitle}>{t("won.congrats")}</Text>
         <Text style={styles.heroSub}>
-          {isWinner ? "You won this auction." : "This auction has closed."}
+          {isWinner ? t("won.subtitle") : t("won.closed")}
         </Text>
         <Text style={styles.heroVehicle}>
           {`${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}`}
@@ -418,36 +420,36 @@ export function AuctionWonScreen({
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Ionicons name="receipt-outline" size={16} color={theme.colors.brand} />
-          <Text style={styles.sectionTitle}>Invoice</Text>
+          <Text style={styles.sectionTitle}>{t("won.invoice")}</Text>
         </View>
 
         <View style={styles.invoiceCard}>
           {/* Vehicle */}
           <View style={styles.invRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.invLabel}>Vehicle</Text>
+              <Text style={styles.invLabel}>{t("won.vehicleLabel")}</Text>
               <Text style={styles.invValue}>
                 {`${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}`}
               </Text>
-              <Text style={styles.invMeta}>VIN {v.vin} · {v.location_city}, {v.location_country}</Text>
+              <Text style={styles.invMeta}>{t("won.vinMeta", { vin: v.vin, city: v.location_city, country: v.location_country })}</Text>
             </View>
           </View>
 
           <View style={styles.divider} />
 
-          <LineItem label="Hammer price" value={format(hammerEur)} />
-          <LineItem label="Platform fee (2.9%)" value={format(feeEur)} />
+          <LineItem label={t("won.hammer")} value={format(hammerEur)} />
+          <LineItem label={t("won.platformFee")} value={format(feeEur)} />
           <LineItem
-            label={describeMethod(shipping.method)}
+            label={describeMethod(shipping.method, t)}
             value={format(methodEur)}
-            sub="Selected delivery method"
+            sub={t("won.selectedDelivery")}
           />
           {shipping.tuv && (
-            <LineItem label="German Registration (TÜV)" value={format(tuvEur)} sub="Add-on service" />
+            <LineItem label={t("won.germanReg")} value={format(tuvEur)} sub={t("won.addOnService")} />
           )}
 
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total due</Text>
+            <Text style={styles.totalLabel}>{t("won.totalDue")}</Text>
             <Text style={styles.totalAmount}>{format(totalEur)}</Text>
           </View>
         </View>
@@ -461,14 +463,14 @@ export function AuctionWonScreen({
               style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
             >
               <Ionicons name="download-outline" size={16} color={theme.colors.brand} />
-              <Text style={styles.pdfBtnText}>Download PDF</Text>
+              <Text style={styles.pdfBtnText}>{t("won.downloadPdf")}</Text>
             </Pressable>
             <Pressable
               onPress={sharePdf}
               style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
             >
               <Ionicons name="share-outline" size={16} color={theme.colors.brand} />
-              <Text style={styles.pdfBtnText}>Share PDF</Text>
+              <Text style={styles.pdfBtnText}>{t("won.sharePdf")}</Text>
             </Pressable>
           </View>
         )}
@@ -484,16 +486,16 @@ export function AuctionWonScreen({
             <View style={{ flex: 1 }}>
               {confirmExpired ? (
                 <>
-                  <Text style={[styles.deadlineEyebrow, { color: theme.colors.error }]}>Confirmation window expired</Text>
-                  <Text style={styles.payBody}>You didn&apos;t confirm in time, so this vehicle may be re-listed. Contact us if you still wish to proceed.</Text>
+                  <Text style={[styles.deadlineEyebrow, { color: theme.colors.error }]}>{t("won.confirmExpiredEyebrow")}</Text>
+                  <Text style={styles.payBody}>{t("won.confirmExpiredBody")}</Text>
                 </>
               ) : (
                 <>
-                  <Text style={styles.deadlineEyebrow}>Confirm payment within {CONFIRM_WINDOW_HOURS} hours</Text>
+                  <Text style={styles.deadlineEyebrow}>{t("won.confirmWithinHours", { hours: CONFIRM_WINDOW_HOURS })}</Text>
                   <Text style={styles.deadlineDate}>{formatDeadline(confirmDeadline)}</Text>
-                  <Text style={styles.deadlineRemaining}>{formatCountdownToDeadline(confirmDeadline, now)}</Text>
+                  <Text style={styles.deadlineRemaining}>{formatCountdownToDeadline(confirmDeadline, now, t)}</Text>
                   <Text style={[styles.payBody, { marginTop: 6 }]}>
-                    Confirm your intent to pay. You&apos;ll then have {PAYMENT_WORKING_DAYS} working days to complete the wire transfer.
+                    {t("won.confirmIntentBody", { days: PAYMENT_WORKING_DAYS })}
                   </Text>
                   {invoice && (
                     <Pressable
@@ -501,7 +503,7 @@ export function AuctionWonScreen({
                       style={({ pressed }) => [styles.confirmBtn, pressed && { opacity: 0.9 }]}
                     >
                       <Ionicons name="cloud-upload-outline" size={16} color={theme.colors.white} />
-                      <Text style={styles.confirmText}>Confirm payment</Text>
+                      <Text style={styles.confirmText}>{t("won.confirmPayment")}</Text>
                     </Pressable>
                   )}
                 </>
@@ -517,11 +519,11 @@ export function AuctionWonScreen({
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.deadlineEyebrow, { color: theme.colors.success }]}>
-                Payment confirmed — wire within {PAYMENT_WORKING_DAYS} working days
+                {t("won.paymentConfirmedEyebrow", { days: PAYMENT_WORKING_DAYS })}
               </Text>
               <Text style={styles.deadlineDate}>{formatDeadline(payDeadline)}</Text>
-              <Text style={[styles.deadlineRemaining, { color: theme.colors.success }]}>{formatCountdownToDeadline(payDeadline, now)}</Text>
-              <Text style={[styles.payBody, { marginTop: 6 }]}>Late or missing payment after this deadline may incur late fees/charges.</Text>
+              <Text style={[styles.deadlineRemaining, { color: theme.colors.success }]}>{formatCountdownToDeadline(payDeadline, now, t)}</Text>
+              <Text style={[styles.payBody, { marginTop: 6 }]}>{t("won.latePaymentNote")}</Text>
             </View>
           </View>
         </View>
@@ -531,7 +533,7 @@ export function AuctionWonScreen({
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Ionicons name="card-outline" size={16} color={theme.colors.brand} />
-          <Text style={styles.sectionTitle}>Payment instructions</Text>
+          <Text style={styles.sectionTitle}>{t("won.paymentTitle")}</Text>
         </View>
 
         <View style={styles.payCard}>
@@ -544,7 +546,7 @@ export function AuctionWonScreen({
           <View style={styles.bankBox}>
             <Ionicons name="business-outline" size={16} color={theme.colors.textMuted} />
             <Text style={styles.bankText}>
-              Bank details will be sent to your registered email
+              {t("won.bankDetails")}
               {user?.email ? ` (${user.email})` : ""}.
             </Text>
           </View>
@@ -552,13 +554,18 @@ export function AuctionWonScreen({
           <Pressable
             onPress={() => {
               void Share.share({
-                message: `XportACar invoice — ${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}\nTotal due: ${format(totalEur)}\nConfirm within 36h; then pay within 5 working days.`,
+                message: t("won.shareSummaryMessage", {
+                  vehicle: `${v.year} ${v.make} ${v.model}${v.trim ? " " + v.trim : ""}`,
+                  total: format(totalEur),
+                  hours: CONFIRM_WINDOW_HOURS,
+                  days: PAYMENT_WORKING_DAYS,
+                }),
               });
             }}
             style={({ pressed }) => [styles.shareBtn, pressed && { opacity: 0.9 }]}
           >
             <Ionicons name="share-outline" size={16} color={theme.colors.brand} />
-            <Text style={styles.shareText}>Share invoice summary</Text>
+            <Text style={styles.shareText}>{t("won.share")}</Text>
           </Pressable>
         </View>
       </View>
@@ -570,14 +577,14 @@ export function AuctionWonScreen({
           style={({ pressed }) => [styles.footerOutline, pressed && { opacity: 0.92 }]}
         >
           <Ionicons name="grid-outline" size={16} color={theme.colors.brand} />
-          <Text style={styles.footerOutlineText}>Back to marketplace</Text>
+          <Text style={styles.footerOutlineText}>{t("won.backMarket")}</Text>
         </Pressable>
         <Pressable
           onPress={() => navigation.navigate("VehicleDetail", { id: v.id })}
           style={({ pressed }) => [styles.footerOutline, pressed && { opacity: 0.92 }]}
         >
           <Ionicons name="document-text-outline" size={16} color={theme.colors.brand} />
-          <Text style={styles.footerOutlineText}>View vehicle</Text>
+          <Text style={styles.footerOutlineText}>{t("won.viewVehicle")}</Text>
         </Pressable>
       </View>
 
@@ -586,24 +593,23 @@ export function AuctionWonScreen({
         <KeyboardAvoidingView style={styles.proofBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.proofSheet}>
             <View style={styles.proofHeader}>
-              <Text style={styles.proofTitle}>Confirm payment & upload proof</Text>
+              <Text style={styles.proofTitle}>{t("won.proofModalTitle")}</Text>
               <Pressable onPress={() => setProofOpen(false)} hitSlop={10}>
                 <Ionicons name="close" size={22} color={theme.colors.textMuted} />
               </Pressable>
             </View>
             <Text style={styles.proofSub}>
-              Attach your transfer receipt (PDF, PNG or JPG — up to 5 files, 10MB each).
-              Submitting confirms your intent to pay.
+              {t("won.proofModalSub", { max: MAX_FILES, size: MAX_BYTES / (1024 * 1024) })}
             </Text>
 
             <View style={styles.proofPickRow}>
               <Pressable onPress={addImage} style={({ pressed }) => [styles.proofPickBtn, pressed && { opacity: 0.9 }]}>
                 <Ionicons name="image-outline" size={18} color={theme.colors.brand} />
-                <Text style={styles.proofPickText}>Add photo</Text>
+                <Text style={styles.proofPickText}>{t("won.addPhoto")}</Text>
               </Pressable>
               <Pressable onPress={addDocument} style={({ pressed }) => [styles.proofPickBtn, pressed && { opacity: 0.9 }]}>
                 <Ionicons name="document-outline" size={18} color={theme.colors.brand} />
-                <Text style={styles.proofPickText}>Add PDF / file</Text>
+                <Text style={styles.proofPickText}>{t("won.addPdfFile")}</Text>
               </Pressable>
             </View>
 
@@ -620,7 +626,7 @@ export function AuctionWonScreen({
             <TextInput
               value={proofNote}
               onChangeText={setProofNote}
-              placeholder="Reference number, transfer details, etc. (optional)"
+              placeholder={t("won.proofNotePlaceholder")}
               placeholderTextColor={theme.colors.textLight}
               multiline
               style={styles.proofNote}
@@ -631,7 +637,7 @@ export function AuctionWonScreen({
               disabled={submitting || proofFiles.length === 0}
               style={({ pressed }) => [styles.proofSubmit, (submitting || proofFiles.length === 0) && { opacity: 0.5 }, pressed && { opacity: 0.9 }]}
             >
-              <Text style={styles.proofSubmitText}>{submitting ? "Submitting…" : "Submit proof"}</Text>
+              <Text style={styles.proofSubmitText}>{submitting ? t("won.submitting") : t("won.submitProof")}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

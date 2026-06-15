@@ -6,6 +6,7 @@ import Constants from "expo-constants";
 import { Button } from "../components/Button";
 import { KeyboardAwareScroll } from "../components/KeyboardAwareScroll";
 import { supabase } from "../lib/supabase";
+import { useTranslation } from "../lib/i18n";
 import { theme } from "../lib/theme";
 import { registerForPush } from "../lib/push";
 
@@ -33,6 +34,7 @@ async function ensureProfile(
 }
 
 export function RegisterScreen({ navigation }: { navigation: { goBack: () => void } }) {
+  const { t } = useTranslation();
   const [fullName, setFullName] = useState("");
   const [company, setCompany] = useState("");
   const [country, setCountry] = useState("");
@@ -42,16 +44,17 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
+    if (loading) return; // guard against double-taps queuing multiple sign-ups
     if (!email || !password || !fullName) {
-      Alert.alert("Missing info", "Name, email and password are required.");
+      Alert.alert(t("register.missingTitle"), t("register.missingBody"));
       return;
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
-      Alert.alert("Invalid email", "Enter a valid email address.");
+      Alert.alert(t("register.invalidEmailTitle"), t("register.invalidEmailBody"));
       return;
     }
     if (password.length < 8) {
-      Alert.alert("Weak password", "Use at least 8 characters.");
+      Alert.alert(t("register.weakPwdTitle"), t("register.min8Body"));
       return;
     }
 
@@ -82,8 +85,8 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
       // Genuine failure (no account created and couldn't sign in).
       if (!user) {
         Alert.alert(
-          "Couldn't create your account",
-          signUpError?.message ?? "Please check your connection and try again.",
+          t("register.createFailedTitle"),
+          signUpError?.message ?? t("register.createFailedBody"),
         );
         return;
       }
@@ -112,11 +115,11 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
         } catch { /* best-effort — email must never block signup */ }
 
         try { void registerForPush().catch(() => {}); } catch { /* silent */ }
-        Alert.alert("Welcome to XportACar", "Your trade account is live.");
+        Alert.alert(t("register.welcomeTitle"), t("register.welcomeBody"));
         // RootNavigator switches to the app automatically (session is set).
       } else {
         // Email confirmation is required (no session yet).
-        Alert.alert("Check your email", "Confirm your email to finish signing up.");
+        Alert.alert(t("register.checkEmailTitle"), t("register.checkEmailBody"));
         navigation.goBack();
       }
     } finally {
@@ -126,19 +129,19 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
 
   return (
     <KeyboardAwareScroll contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.bg }}>
-        <Text style={styles.title}>Open a trade account</Text>
-        <Text style={styles.subtitle}>Two minutes. Approved within a day.</Text>
+        <Text style={styles.title}>{t("auth.openTrade")}</Text>
+        <Text style={styles.subtitle}>{t("auth.twoMinutes")}</Text>
 
-        <Field label="Full name" required>
+        <Field label={t("auth.fullName")} required>
           <TextInput value={fullName} onChangeText={setFullName} placeholder="Klaus Weber" style={styles.input} placeholderTextColor={theme.colors.textLight} />
         </Field>
-        <Field label="Company">
+        <Field label={t("auth.company")}>
           <TextInput value={company} onChangeText={setCompany} placeholder="AutoHaus Weber GmbH" style={styles.input} placeholderTextColor={theme.colors.textLight} />
         </Field>
-        <Field label="Country">
+        <Field label={t("auth.country")}>
           <TextInput value={country} onChangeText={setCountry} placeholder="Germany" style={styles.input} placeholderTextColor={theme.colors.textLight} />
         </Field>
-        <Field label="Email" required>
+        <Field label={t("auth.email")} required>
           <TextInput
             value={email}
             onChangeText={setEmail}
@@ -150,18 +153,18 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
             placeholderTextColor={theme.colors.textLight}
           />
         </Field>
-        <Field label="Password" required>
+        <Field label={t("auth.password")} required>
           <View style={styles.pwRow}>
             <TextInput value={password} onChangeText={setPassword} secureTextEntry={!showPw} style={[styles.input, styles.pwInput]} placeholderTextColor={theme.colors.textLight} />
             <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
               <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={20} color={theme.colors.textLight} />
             </Pressable>
           </View>
-          <Text style={styles.hint}>At least 8 characters.</Text>
+          <Text style={styles.hint}>{t("register.min8Hint")}</Text>
         </Field>
 
-        <Button label={loading ? "Creating…" : "Create account"} onPress={submit} loading={loading} fullWidth style={{ marginTop: 8 }} />
-        <Button label="Back to sign in" variant="ghost" onPress={() => navigation.goBack()} style={{ marginTop: 6 }} />
+        <Button label={loading ? t("auth.creating") : t("auth.createAccount")} onPress={submit} loading={loading} fullWidth style={{ marginTop: 8 }} />
+        <Button label={t("auth.backToSignIn")} variant="ghost" onPress={() => navigation.goBack()} style={{ marginTop: 6 }} />
     </KeyboardAwareScroll>
   );
 }

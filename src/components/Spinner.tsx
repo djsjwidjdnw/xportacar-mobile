@@ -1,11 +1,13 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { theme } from "../lib/theme";
+import { useTranslation } from "../lib/i18n";
 
-export function Spinner({ label = "Loading…" }: { label?: string }) {
+export function Spinner({ label }: { label?: string }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.wrap}>
       <ActivityIndicator size="large" color={theme.colors.brand} />
-      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.label}>{label ?? t("common.loading")}</Text>
     </View>
   );
 }

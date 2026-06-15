@@ -8,6 +8,7 @@ import {
   theme, formatEur, formatCountdown, msRemaining,
   isAuctionLive, isAuctionEnded, thumb,
 } from "../lib/theme";
+import { useTranslation } from "../lib/i18n";
 import type { VehicleListItem } from "./VehicleCard";
 
 // Tick once per second so HH:MM:SS counts down in real-time. Each card
@@ -34,6 +35,7 @@ export function LiveAuctionCard({
   onToggleWatch?: () => void;
 }) {
   useSecondTick();
+  const { t } = useTranslation();
   const auction = vehicle.auction;
   if (!auction) return null;
 
@@ -88,12 +90,12 @@ export function LiveAuctionCard({
         {ended ? (
           <View style={[styles.statusBadge, styles.endedBadge]}>
             <Ionicons name="lock-closed" size={11} color={theme.colors.white} />
-            <Text style={styles.statusText}>ENDED</Text>
+            <Text style={styles.statusText}>{t("card.ended")}</Text>
           </View>
         ) : live ? (
           <View style={[styles.statusBadge, styles.liveBadge]}>
             <View style={styles.liveDot} />
-            <Text style={styles.statusText}>LIVE</Text>
+            <Text style={styles.statusText}>{t("card.live")}</Text>
           </View>
         ) : null}
         {onToggleWatch && (
@@ -101,7 +103,7 @@ export function LiveAuctionCard({
             onPress={(e) => { e.stopPropagation(); bounceHeart(); }}
             hitSlop={8}
             style={({ pressed }) => [styles.heartBtn, pressed && { opacity: 0.85 }]}
-            accessibilityLabel={isWatching ? "Remove from watchlist" : "Add to watchlist"}
+            accessibilityLabel={isWatching ? t("card.removeFromWatchlist") : t("card.addToWatchlist")}
           >
             <Animated.View style={{ transform: [{ scale: heartScale }] }}>
               <Ionicons
@@ -130,10 +132,10 @@ export function LiveAuctionCard({
         />
         <View style={{ flex: 1 }}>
           <Text style={[styles.countdownLabel, (urgent || ended) && styles.countdownLabelInverse]}>
-            {ended ? "AUCTION ENDED" : urgent ? "ENDING SOON" : "TIME LEFT"}
+            {ended ? t("card.auctionEnded") : urgent ? t("card.endingSoon") : t("card.timeLeft")}
           </Text>
           <Text style={[styles.countdownValue, (urgent || ended) && styles.countdownValueInverse]}>
-            {ended ? "Closed" : countdown}
+            {ended ? t("card.closed") : countdown}
           </Text>
         </View>
       </Animated.View>
@@ -149,7 +151,7 @@ export function LiveAuctionCard({
           </Text>
         </View>
         <View style={{ alignItems: "flex-end" }}>
-          <Text style={styles.bidLabel}>{ended ? "Final bid" : "Current bid"}</Text>
+          <Text style={styles.bidLabel}>{ended ? t("card.finalBid") : t("auction.currentBid")}</Text>
           <Text style={styles.bidValue}>{formatEur(currentBid)}</Text>
           <Text style={styles.bidsCount}>
             {auction.bid_count} bid{auction.bid_count === 1 ? "" : "s"}
@@ -175,7 +177,7 @@ export function LiveAuctionCard({
             color={ended ? theme.colors.textMuted : theme.colors.white}
           />
           <Text style={[styles.bidBtnText, ended && { color: theme.colors.textMuted }]}>
-            {ended ? "Auction ended" : "Bid Now"}
+            {ended ? t("auction.ended") : t("vehicle.bidNow")}
           </Text>
           {!ended && <Ionicons name="arrow-forward" size={16} color={theme.colors.white} />}
         </LinearGradient>

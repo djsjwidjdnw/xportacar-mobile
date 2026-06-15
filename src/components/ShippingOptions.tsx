@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { theme } from "../lib/theme";
 import { useCurrency } from "../lib/currency";
+import { useTranslation } from "../lib/i18n";
 import { CustomsDisclaimer } from "./CustomsDisclaimer";
 import {
   getShippingRates, portRoutes, serviceRate, getShippingPriceEur, describeShipping,
@@ -28,6 +29,7 @@ export function ShippingOptions({
   rates?: ShippingRate[];
 }) {
   const { format } = useCurrency();
+  const { t } = useTranslation();
   const [fetched, setFetched] = useState<ShippingRate[]>(FALLBACK_RATES);
   const rates = ratesProp ?? fetched;
 
@@ -46,20 +48,20 @@ export function ShippingOptions({
 
   return (
     <View style={{ gap: 12 }}>
-      <Text style={styles.sectionEyebrow}>Delivery method</Text>
+      <Text style={styles.sectionEyebrow}>{t("shipping.deliveryMethod")}</Text>
       <Row
         active={value.method.kind === "warehouse"}
         onPress={() => setMethod({ kind: "warehouse" })}
         icon="cube-outline"
-        title="Warehouse Pickup (Dubai)"
-        subtitle="Free · available immediately after payment"
-        priceLabel="Free"
+        title={t("shipping.warehousePickup")}
+        subtitle={t("shipping.warehouseSubtitle")}
+        priceLabel={t("shipping.free")}
       />
 
       <View style={styles.groupCard}>
         <View style={styles.groupHeader}>
           <Ionicons name="boat-outline" size={14} color={theme.colors.brand} />
-          <Text style={styles.groupTitle}>Nearest Port Delivery</Text>
+          <Text style={styles.groupTitle}>{t("shipping.nearestPort")}</Text>
         </View>
         {roro.map((p, idx) => {
           const active = value.method.kind === "port" && value.method.port === p.destination_port;
@@ -73,7 +75,7 @@ export function ShippingOptions({
               <View style={[styles.radio, active && styles.radioActive]}>{active && <View style={styles.radioInner} />}</View>
               <View style={styles.subText}>
                 <Text style={styles.subTitle} numberOfLines={1}>{p.destination_port}{country ? `, ${country}` : ""}</Text>
-                <Text style={styles.subMeta}>{p.transit_days_min}–{p.transit_days_max} days</Text>
+                <Text style={styles.subMeta}>{t("shipping.transitDays", { min: p.transit_days_min ?? "", max: p.transit_days_max ?? "" })}</Text>
               </View>
               <Text style={styles.subPrice} numberOfLines={1}>{format(PORT_FLAT_EUR)}</Text>
             </Pressable>
@@ -85,13 +87,13 @@ export function ShippingOptions({
         active={value.method.kind === "door"}
         onPress={() => setMethod({ kind: "door" })}
         icon="home-outline"
-        title="Door-to-Door Delivery"
-        subtitle="Added on top of the port rate · 30–45 days"
-        priceLabel="From"
+        title={t("shipping.doorToDoor")}
+        subtitle={t("shipping.doorToDoorSubtitle")}
+        priceLabel={t("shipping.from")}
         priceValue={format(doorPrice)}
       />
 
-      <Text style={styles.sectionEyebrow}>Add-on service</Text>
+      <Text style={styles.sectionEyebrow}>{t("shipping.addOnService")}</Text>
       {/* TÜV is an additive checkbox — combinable with ANY delivery method. */}
       <Pressable
         onPress={() => onChange({ ...value, tuv: !value.tuv })}
@@ -106,11 +108,11 @@ export function ShippingOptions({
           </View>
         </View>
         <View style={styles.textBlock}>
-          <Text style={styles.title} numberOfLines={2}>German Registration (TÜV)</Text>
-          <Text style={styles.subtitle} numberOfLines={2}>Inspection for DE registration, CoC, customs paperwork</Text>
+          <Text style={styles.title} numberOfLines={2}>{t("shipping.germanRegistration")}</Text>
+          <Text style={styles.subtitle} numberOfLines={2}>{t("shipping.germanRegistrationSubtitle")}</Text>
         </View>
         <View style={styles.priceBlock}>
-          <Text style={styles.priceCaption} numberOfLines={1}>+ Add</Text>
+          <Text style={styles.priceCaption} numberOfLines={1}>{t("shipping.add")}</Text>
           <Text style={styles.priceValue} numberOfLines={1}>{format(tuvPrice)}</Text>
         </View>
       </Pressable>

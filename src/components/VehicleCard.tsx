@@ -7,6 +7,7 @@ import {
   isAuctionLive, isAuctionEnded, isAuctionScheduled, thumb,
 } from "../lib/theme";
 import { estimateValuation } from "../lib/valuation";
+import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export interface VehicleListItem extends VehicleRow {
@@ -17,12 +18,12 @@ export interface VehicleListItem extends VehicleRow {
 // CTA action mapping. The marketplace passes a navigation handler; the
 // VehicleCard derives the label / colour from auction state so the button
 // stays consistent across screens that use this component.
-function ctaFor(auction: AuctionRow | null): { label: string; icon: keyof typeof Ionicons.glyphMap; variant: "primary" | "muted" } {
-  if (!auction) return { label: "View details", icon: "arrow-forward", variant: "muted" };
-  if (isAuctionEnded(auction))    return { label: "View result",   icon: "lock-closed-outline", variant: "muted" };
-  if (isAuctionLive(auction))     return { label: "Bid Now",       icon: "hammer-outline",     variant: "primary" };
-  if (isAuctionScheduled(auction)) return { label: "Coming soon",  icon: "calendar-outline",   variant: "muted" };
-  return { label: "View details", icon: "arrow-forward", variant: "muted" };
+function ctaFor(auction: AuctionRow | null, t: (key: string, values?: Record<string, string | number>) => string): { label: string; icon: keyof typeof Ionicons.glyphMap; variant: "primary" | "muted" } {
+  if (!auction) return { label: t("card.viewDetails"), icon: "arrow-forward", variant: "muted" };
+  if (isAuctionEnded(auction))    return { label: t("vehicle.viewResult"),   icon: "lock-closed-outline", variant: "muted" };
+  if (isAuctionLive(auction))     return { label: t("vehicle.bidNow"),       icon: "hammer-outline",     variant: "primary" };
+  if (isAuctionScheduled(auction)) return { label: t("card.comingSoon"),  icon: "calendar-outline",   variant: "muted" };
+  return { label: t("card.viewDetails"), icon: "arrow-forward", variant: "muted" };
 }
 
 export function VehicleCard({
@@ -38,6 +39,7 @@ export function VehicleCard({
   isWatching?: boolean;
   onToggleWatch?: () => void;
 }) {
+  const { t } = useTranslation();
   // Compute live/scheduled/ended from end_time + status, not status alone:
   // an auction with status="active" but end_time in the past is over.
   const live = isAuctionLive(vehicle.auction);
@@ -48,7 +50,7 @@ export function VehicleCard({
     : ended
       ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
       : vehicle.listed_price_eur;
-  const cta = ctaFor(vehicle.auction);
+  const cta = ctaFor(vehicle.auction, t);
   const marketAvg = estimateValuation({
     make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km,
   }).avgEur;
@@ -82,12 +84,12 @@ export function VehicleCard({
   // Status chip — surfaces the vehicle/auction state on every card so the
   // marketplace mixes listed / scheduled / live / ended without confusion.
   const statusChip = ended
-    ? { l: "ENDED",     bg: theme.colors.errorBg,    fg: theme.colors.error }
+    ? { l: t("card.ended"),     bg: theme.colors.errorBg,    fg: theme.colors.error }
     : live
-    ? { l: "LIVE NOW",  bg: theme.colors.successBg,  fg: theme.colors.success }
+    ? { l: t("card.liveNow"),  bg: theme.colors.successBg,  fg: theme.colors.success }
     : scheduled
-    ? { l: "SCHEDULED", bg: theme.colors.brandLight, fg: theme.colors.brand }
-    : { l: "LISTED",    bg: theme.colors.bgAlt,      fg: theme.colors.textMuted };
+    ? { l: t("card.scheduled"), bg: theme.colors.brandLight, fg: theme.colors.brand }
+    : { l: t("card.listed"),    bg: theme.colors.bgAlt,      fg: theme.colors.textMuted };
 
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] }]}>
@@ -103,19 +105,19 @@ export function VehicleCard({
         {ended && (
           <View style={styles.endedBadge}>
             <Ionicons name="lock-closed" size={11} color={theme.colors.white} />
-            <Text style={styles.liveText}>ENDED</Text>
+            <Text style={styles.liveText}>{t("card.ended")}</Text>
           </View>
         )}
         {!ended && live && (
           <View style={styles.liveBadge}>
             <Animated.View style={[styles.liveDot, { transform: [{ scale: pulse }] }]} />
-            <Text style={styles.liveText}>LIVE</Text>
+            <Text style={styles.liveText}>{t("card.live")}</Text>
           </View>
         )}
         {!ended && scheduled && vehicle.auction && (
           <View style={styles.scheduledBadge}>
             <Ionicons name="calendar-outline" size={11} color={theme.colors.white} />
-            <Text style={styles.scheduledText}>SCHEDULED</Text>
+            <Text style={styles.scheduledText}>{t("card.scheduled")}</Text>
           </View>
         )}
         {!ended && live && vehicle.auction && (
@@ -127,7 +129,7 @@ export function VehicleCard({
         {!ended && scheduled && vehicle.auction && (
           <View style={styles.timerBadge}>
             <Ionicons name="calendar-outline" size={12} color={theme.colors.white} />
-            <Text style={styles.timerText}>Starts {formatScheduledStart(vehicle.auction.start_time)}</Text>
+            <Text style={styles.timerText}>{t("vehicle.scheduled", { when: formatScheduledStart(vehicle.auction.start_time) })}</Text>
           </View>
         )}
         {onToggleWatch && (
@@ -135,7 +137,7 @@ export function VehicleCard({
             onPress={(e) => { e.stopPropagation(); bounceHeart(); }}
             hitSlop={8}
             style={({ pressed }) => [styles.heartBtn, pressed && { opacity: 0.85 }]}
-            accessibilityLabel={isWatching ? "Remove from watchlist" : "Add to watchlist"}
+            accessibilityLabel={isWatching ? t("card.removeFromWatchlist") : t("card.addToWatchlist")}
           >
             <Animated.View style={{ transform: [{ scale: heartScale }] }}>
               <Ionicons
@@ -175,16 +177,16 @@ export function VehicleCard({
         <View style={styles.priceRow}>
           <View>
             <Text style={styles.priceLabel}>
-              {ended ? "Final bid" : live ? "Current bid" : scheduled ? "Starting price" : "Listed price"}
+              {ended ? t("card.finalBid") : live ? t("auction.currentBid") : scheduled ? t("vehicle.startingPrice") : t("vehicle.listedPrice")}
             </Text>
             <Text style={styles.price}>
               {formatEur(scheduled ? vehicle.auction?.starting_price_eur : price)}
             </Text>
-            <Text style={styles.marketLine}>Market {formatEur(marketAvg)}</Text>
+            <Text style={styles.marketLine}>{t("card.marketPrice", { price: formatEur(marketAvg) })}</Text>
           </View>
           {vehicle.auction && live && !ended && (
             <Text style={styles.bidsSub}>
-              {vehicle.auction.bid_count} bids · {vehicle.auction.bidder_count} bidders
+              {t("auction.bidsBidders", { bids: vehicle.auction.bid_count, bidders: vehicle.auction.bidder_count })}
             </Text>
           )}
           {vehicle.auction && scheduled && !ended && (

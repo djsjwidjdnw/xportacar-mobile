@@ -104,14 +104,14 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       .update({ full_name: fullName, company_name: company || null, country: country || null, phone: phone || null })
       .eq("id", user.id);
     setSaving(false);
-    if (error) { Alert.alert("Couldn't save", error.message); return; }
-    Alert.alert("Saved", t("profile.saved"));
+    if (error) { Alert.alert(t("profile.saveFailed"), error.message); return; }
+    Alert.alert(t("profile.savedTitle"), t("profile.saved"));
   };
 
   const confirmSignOut = () => {
-    Alert.alert("Sign out?", "You'll need to enter your email and password again to bid.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Sign out", style: "destructive", onPress: () => { void signOut(); } },
+    Alert.alert(t("profile.signOutConfirmTitle"), t("profile.signOutConfirmBody"), [
+      { text: t("pw.cancel"), style: "cancel" },
+      { text: t("nav.signOut"), style: "destructive", onPress: () => { void signOut(); } },
     ]);
   };
 
@@ -176,9 +176,9 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       </View>
     );
   }
-  if (loading) return <Spinner label="Loading profile…" />;
+  if (loading) return <Spinner label={t("profile.loading")} />;
 
-  const displayName = profile?.full_name?.trim() || (user.email?.split("@")[0] ?? "Member");
+  const displayName = profile?.full_name?.trim() || (user.email?.split("@")[0] ?? t("profile.memberFallback"));
   const userInits = makeInitials(profile?.full_name, user.email);
 
   // Reduce bids to top bid per auction for "Recent activity"
@@ -330,7 +330,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
                 </View>
                 <View style={styles.bidCardFoot}>
                   <Text style={styles.bidCardFootText}>
-                    {isWinner ? "View Invoice" : t("profile.viewAuction")}
+                    {isWinner ? t("vehicle.viewInvoice") : t("profile.viewAuction")}
                   </Text>
                   <Ionicons name="arrow-forward" size={12} color={isWinner ? theme.colors.success : theme.colors.brand} />
                 </View>
@@ -370,7 +370,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       {/* Account details form */}
       <SectionHeader icon="person-outline" label={t("profile.section")} />
       <View style={styles.card}>
-        <Field label={t("auth.fullName")}><TextInput value={fullName} onChangeText={setFullName} style={styles.input} placeholder="Your name" placeholderTextColor={theme.colors.textLight} /></Field>
+        <Field label={t("auth.fullName")}><TextInput value={fullName} onChangeText={setFullName} style={styles.input} placeholder={t("profile.phName")} placeholderTextColor={theme.colors.textLight} /></Field>
         <Field label={t("auth.company")}><TextInput value={company} onChangeText={setCompany} style={styles.input} placeholder="Company GmbH" placeholderTextColor={theme.colors.textLight} /></Field>
         <Field label={t("auth.country")}><TextInput value={country} onChangeText={setCountry} style={styles.input} placeholder="Germany" placeholderTextColor={theme.colors.textLight} /></Field>
         <Field label={t("profile.phone")}><TextInput value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" placeholder="+49 …" placeholderTextColor={theme.colors.textLight} /></Field>

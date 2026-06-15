@@ -144,7 +144,7 @@ export function VehicleDetailScreen({
   // Cap the marker at the bar edges: above max → right edge, below min → left edge.
   const mvPct = valuation ? Math.min(100, Math.max(0, ((priceEur - valuation.minEur) / Math.max(1, valuation.maxEur - valuation.minEur)) * 100)) : 0;
   const mvColor = mvPos === "fair" ? theme.colors.success : mvPos === "below" ? theme.colors.warning : mvPos === "above" ? theme.colors.error : theme.colors.textMuted;
-  const mvLabel = mvPos === "fair" ? "Fair" : mvPos === "below" ? "Below market" : mvPos === "above" ? "Above market" : "";
+  const mvLabel = mvPos === "fair" ? t("vehicle.mvFair") : mvPos === "below" ? t("vehicle.mvBelow") : mvPos === "above" ? t("vehicle.mvAbove") : "";
   const mvLabelColor = mvPos === "below" ? "#b54708" : mvPos === "above" ? theme.colors.error : theme.colors.success;
 
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
@@ -189,13 +189,13 @@ export function VehicleDetailScreen({
           {live && auction && (
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE · {formatRemaining(auction.end_time)}</Text>
+              <Text style={styles.liveText}>{t("vehicle.liveBadge", { time: formatRemaining(auction.end_time) })}</Text>
             </View>
           )}
           {scheduled && auction && (
             <View style={[styles.liveBadge, { backgroundColor: theme.colors.brand }]}>
               <Ionicons name="calendar-outline" size={11} color={theme.colors.white} />
-              <Text style={[styles.liveText, { color: theme.colors.white }]}>SCHEDULED</Text>
+              <Text style={[styles.liveText, { color: theme.colors.white }]}>{t("vehicle.scheduledBadge")}</Text>
             </View>
           )}
         </View>
@@ -236,12 +236,12 @@ export function VehicleDetailScreen({
 
           {/* Market value */}
           {valuation && (
-            <Section title="Market value" icon="trending-up-outline">
+            <Section title={t("vehicle.marketValue")} icon="trending-up-outline">
               <View style={styles.mvCard}>
                 <View style={styles.mvHeader}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.mvAvg}>{format(valuation.avgEur)}</Text>
-                    <Text style={styles.mvAvgLabel}>average market value</Text>
+                    <Text style={styles.mvAvgLabel}>{t("vehicle.avgMarketValue")}</Text>
                   </View>
                   {mvLabel ? (
                     <View style={[styles.mvPill, { backgroundColor: `${mvLabelColor}1A`, borderColor: `${mvLabelColor}40` }]}>
@@ -259,13 +259,13 @@ export function VehicleDetailScreen({
                   <View style={[styles.mvMarker, { left: `${mvPct}%`, backgroundColor: mvColor }]} />
                 </View>
                 <View style={styles.mvRow}>
-                  <Text style={styles.mvMinMax}>Min {format(valuation.minEur)}</Text>
-                  <Text style={styles.mvMinMax}>Max {format(valuation.maxEur)}</Text>
+                  <Text style={styles.mvMinMax}>{t("vehicle.mvMin", { price: format(valuation.minEur) })}</Text>
+                  <Text style={styles.mvMinMax}>{t("vehicle.mvMax", { price: format(valuation.maxEur) })}</Text>
                 </View>
                 <Text style={styles.mvNote}>
                   {valuation.source === "market_data"
-                    ? `Based on ${valuation.dataPoints} comparable listings across EU markets`
-                    : "Estimated market value"}
+                    ? t("vehicle.mvBasedOn", { count: valuation.dataPoints })
+                    : t("vehicle.mvEstimated")}
                 </Text>
               </View>
             </Section>
@@ -284,7 +284,7 @@ export function VehicleDetailScreen({
                   {t("vehicle.totalBreakdown", {
                     price: format(priceEur),
                     shipping: format(shippingEur),
-                    method: describeShipping(shipping),
+                    method: describeShipping(shipping, t),
                   })}
                 </Text>
               </View>
@@ -337,7 +337,7 @@ export function VehicleDetailScreen({
               )}
               <View style={styles.viewReportRow}>
                 <Ionicons name="images-outline" size={16} color={theme.colors.brand} />
-                <Text style={styles.viewReportText}>View full inspection report</Text>
+                <Text style={styles.viewReportText}>{t("vehicle.viewFullReport")}</Text>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.brand} />
               </View>
             </Pressable>
@@ -463,6 +463,7 @@ function InspectionReportModal({
   photos: VehiclePhotoRow[];
   damages: VehicleDamageRow[];
 }) {
+  const { t } = useTranslation();
   const inspectedOn = vehicle.inspection_date
     ? new Date(vehicle.inspection_date).toLocaleDateString("en-GB", {
         weekday: "short", day: "numeric", month: "long", year: "numeric",
@@ -474,12 +475,12 @@ function InspectionReportModal({
       <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <View style={styles.reportHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.reportEyebrow}>Inspection report</Text>
+            <Text style={styles.reportEyebrow}>{t("vehicle.inspectionReport")}</Text>
             <Text style={styles.reportTitle} numberOfLines={1}>
               {`${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.trim ? " " + vehicle.trim : ""}`}
             </Text>
           </View>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.reportClose} accessibilityLabel="Close report">
+          <Pressable onPress={onClose} hitSlop={10} style={styles.reportClose} accessibilityLabel={t("vehicle.closeReport")}>
             <Ionicons name="close" size={22} color={theme.colors.text} />
           </Pressable>
         </View>
@@ -489,14 +490,14 @@ function InspectionReportModal({
           <View style={styles.reportMeta}>
             <View style={styles.reportMetaRow}>
               <Ionicons name="calendar-outline" size={16} color={theme.colors.brand} />
-              <Text style={styles.reportMetaLabel}>Inspected</Text>
+              <Text style={styles.reportMetaLabel}>{t("vehicle.inspected")}</Text>
               <Text style={styles.reportMetaValue} numberOfLines={1}>{inspectedOn}</Text>
             </View>
             <View style={styles.reportMetaRow}>
               <Ionicons name="shield-checkmark-outline" size={16} color={theme.colors.brand} />
-              <Text style={styles.reportMetaLabel}>Inspector</Text>
+              <Text style={styles.reportMetaLabel}>{t("vehicle.inspector")}</Text>
               <Text style={styles.reportMetaValue} numberOfLines={1}>
-                {vehicle.inspector_id ? `XportACar · ${vehicle.inspector_id.slice(0, 8)}` : "XportACar field team"}
+                {vehicle.inspector_id ? `XportACar · ${vehicle.inspector_id.slice(0, 8)}` : t("vehicle.fieldTeam")}
               </Text>
             </View>
           </View>
@@ -504,7 +505,7 @@ function InspectionReportModal({
           {/* Inspector notes */}
           {vehicle.inspection_notes ? (
             <View style={styles.reportNotes}>
-              <Text style={styles.reportSectionTitle}>Inspector notes</Text>
+              <Text style={styles.reportSectionTitle}>{t("vehicle.inspectorNotes")}</Text>
               <Text style={styles.reportNotesText}>{vehicle.inspection_notes}</Text>
             </View>
           ) : null}
@@ -512,7 +513,7 @@ function InspectionReportModal({
           {/* Photos */}
           {photos.length > 0 && (
             <View style={{ marginTop: 20 }}>
-              <Text style={styles.reportSectionTitle}>Photos ({photos.length})</Text>
+              <Text style={styles.reportSectionTitle}>{t("vehicle.photosCount", { count: photos.length })}</Text>
               <View style={styles.reportPhotoGrid}>
                 {photos.map((p) => (
                   <Image key={p.id} source={{ uri: p.url }} style={styles.reportPhoto} contentFit="cover" />
@@ -523,11 +524,11 @@ function InspectionReportModal({
 
           {/* Damage detail */}
           <View style={{ marginTop: 20 }}>
-            <Text style={styles.reportSectionTitle}>Condition &amp; damage ({damages.length})</Text>
+            <Text style={styles.reportSectionTitle}>{t("vehicle.conditionDamageCount", { count: damages.length })}</Text>
             {damages.length === 0 ? (
               <View style={styles.cleanReport}>
                 <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
-                <Text style={styles.cleanReportText}>No damage reported. Vehicle inspected and certified.</Text>
+                <Text style={styles.cleanReportText}>{t("vehicle.noDamageCertified")}</Text>
               </View>
             ) : (
               <View style={{ gap: 12 }}>

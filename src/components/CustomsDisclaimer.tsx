@@ -2,16 +2,18 @@ import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { theme } from "../lib/theme";
+import { useTranslation } from "../lib/i18n";
 
 export const CUSTOMS_DISCLAIMER_TEXT =
   "All import costs including customs duties and VAT are the responsibility of the buyer and are not included in our fees or shipping costs.";
 
 // Prominent (not fine-print) customs/VAT disclaimer — red + bold by design.
 export function CustomsDisclaimer({ style }: { style?: object }) {
+  const { t } = useTranslation();
   return (
     <View style={[styles.box, style]}>
       <Ionicons name="warning-outline" size={18} color="#D92D20" style={{ marginTop: 1 }} />
-      <Text style={styles.text}>{CUSTOMS_DISCLAIMER_TEXT}</Text>
+      <Text style={styles.text}>{t("shipping.customsDisclaimer")}</Text>
     </View>
   );
 }

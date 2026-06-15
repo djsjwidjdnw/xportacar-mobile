@@ -26,15 +26,16 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
   const [resetSent, setResetSent] = useState(false);
 
   const signIn = async () => {
+    if (loading) return; // guard against double-taps queuing multiple sign-ins
     if (!email || !password) {
-      Alert.alert("Missing info", t("auth.missing"));
+      Alert.alert(t("register.missingTitle"), t("auth.missing"));
       return;
     }
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
     if (error) {
-      Alert.alert("Sign in failed", error.message);
+      Alert.alert(t("auth.signInFailed"), error.message);
       return;
     }
     try { void registerForPush().catch(() => {}); } catch { /* silent */ }
@@ -70,7 +71,7 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
       {/* Logo + tagline */}
         <View style={styles.header}>
           <Image source={require("../../assets/logo.jpg")} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.tagline}>Export Cars. Connect Worlds.</Text>
+          <Text style={styles.tagline}>{t("auth.tagline")}</Text>
         </View>
 
         <Text style={styles.title}>{t("auth.welcomeBack")}</Text>
@@ -208,23 +209,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function GradientButton({ label, onPress, loading }: { label: string; onPress: () => void; loading: boolean }) {
+  // The WHOLE gradient is the tap target (a Pressable), not just the text — the
+  // old `<Text onPress>` made only the glyphs tappable, so taps on the rest of
+  // the 52pt button did nothing (the "tap several times, no response" bug).
+  // Pressed opacity gives instant feedback; a spinner shows while signing in.
   return (
-    <View style={{ marginTop: 14 }}>
+    <Pressable
+      onPress={loading ? undefined : onPress}
+      disabled={loading}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: loading, busy: loading }}
+      style={({ pressed }) => [{ marginTop: 14 }, pressed && !loading && { opacity: 0.85 }]}
+    >
       <LinearGradient
         colors={[theme.colors.brand, theme.colors.brandDark]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.gradientBtnWrap}
       >
-        <Text
-          onPress={loading ? undefined : onPress}
-          style={styles.gradientBtnLabel}
-          suppressHighlighting
-        >
-          {label}
-        </Text>
+        {loading && <ActivityIndicator size="small" color={theme.colors.white} style={{ marginRight: 8 }} />}
+        <Text style={styles.gradientBtnLabel}>{label}</Text>
       </LinearGradient>
-    </View>
+    </Pressable>
   );
 }
 
@@ -251,7 +257,7 @@ const styles = StyleSheet.create({
   pwInput: { paddingRight: 48 },
   eyeBtn:  { position: "absolute", right: 8, padding: 8 },
   gradientBtnWrap: {
-    height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
+    height: 52, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center",
     shadowColor: theme.colors.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
