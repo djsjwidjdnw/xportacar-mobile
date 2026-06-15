@@ -97,10 +97,11 @@ export function VehicleCard({
         <Image
           source={vehicle.photo_url ? { uri: thumb(vehicle.photo_url, 600) } : require("../../assets/icon.png")}
           style={styles.image}
-          // cover (not contain) so the front-3/4 hero fills the 4:3 frame
-          // edge-to-edge with the car centred — a real-listing look, no gray
-          // letterbox bars. Matches the web card (aspect-[4/3] + object-cover).
-          contentFit="cover"
+          // CONTAIN (not cover) on the 4:3 frame so the WHOLE car is always
+          // visible — uploaded photos vary in aspect and cover was slicing off
+          // the rear. The dark #0f1419 imageWrap makes any letterbox band read
+          // as an intentional showroom backdrop. Matches the web card.
+          contentFit="contain"
           contentPosition="center"
           transition={150}
         />
@@ -257,7 +258,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
   },
-  imageWrap: { aspectRatio: 4 / 3, width: "100%", backgroundColor: theme.colors.bgAlt, position: "relative" },
+  imageWrap: { aspectRatio: 4 / 3, width: "100%", backgroundColor: "#0f1419", position: "relative" },
   image:     { width: "100%", height: "100%" },
   liveBadge: {
     position: "absolute", top: 12, left: 12, backgroundColor: theme.colors.success,
