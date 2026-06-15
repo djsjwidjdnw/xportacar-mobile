@@ -462,8 +462,8 @@ export function AuctionWonScreen({
               onPress={downloadPdf}
               style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
             >
-              <Ionicons name="download-outline" size={16} color={theme.colors.brand} />
-              <Text style={styles.pdfBtnText}>{t("won.downloadPdf")}</Text>
+              <Ionicons name="eye-outline" size={16} color={theme.colors.brand} />
+              <Text style={styles.pdfBtnText}>{t("won.viewPdf")}</Text>
             </Pressable>
             <Pressable
               onPress={sharePdf}
