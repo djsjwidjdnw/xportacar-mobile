@@ -53,6 +53,7 @@ export function AuctionScreen({
   const [buyOpen, setBuyOpen] = useState(false);
   const [_tick, setTick] = useState(0);
   const didInitBid = useRef(false);
+  const didAutoBuy = useRef(false);
 
   // Proxy / "up to" bidding state. proxyMax stays in EUR (the schema column
   // is proxy_max_eur), but the UI shows it through the currency formatter.
@@ -62,11 +63,18 @@ export function AuctionScreen({
   const amount = Number(amountStr);
   const proxyMax = Number(proxyMaxStr);
 
+  // Auto-open the Buy Now modal ONCE, only on a genuine deep-link entry
+  // (buyNow:true from VehicleDetail.goBuyNow). Guarded by a one-shot ref so it
+  // never re-opens when navigating BACK to this still-mounted screen after a
+  // purchase, and depends only on the primitive auction fields (not the whole
+  // `auction` object, which is replaced on every realtime refresh) so a refresh
+  // can't re-pop it. The Buy Now button's onPress remains the explicit trigger.
   useEffect(() => {
-    if (autoBuyNow && auction?.buy_now_price_eur && auction.status === "active") {
+    if (autoBuyNow && !didAutoBuy.current && auction?.buy_now_price_eur && auction?.status === "active") {
+      didAutoBuy.current = true;
       setBuyOpen(true);
     }
-  }, [autoBuyNow, auction]);
+  }, [autoBuyNow, auction?.buy_now_price_eur, auction?.status]);
 
   useEffect(() => {
     const i = setInterval(() => setTick((x) => x + 1), 1000);
