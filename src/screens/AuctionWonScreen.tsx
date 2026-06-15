@@ -285,15 +285,18 @@ export function AuctionWonScreen({
     if (!invoice) return null;
     const { data: { session } } = await supabase.auth.getSession();
     const tok = session?.access_token;
-    if (!tok) return null;
+    if (!tok) { if (__DEV__) console.warn("[pdf] no session token"); return null; }
     try {
       const res = await fetch(`${WEB_URL}/api/invoice/${invoice.id}/pdf-url`, {
         headers: { Authorization: `Bearer ${tok}` },
       });
-      if (!res.ok) return null;
+      if (!res.ok) { if (__DEV__) console.warn("[pdf] /pdf-url HTTP", res.status); return null; }
       const json = await res.json();
-      return typeof json?.url === "string" ? json.url : null;
-    } catch {
+      if (typeof json?.url !== "string") { if (__DEV__) console.warn("[pdf] no url in response", json); return null; }
+      if (__DEV__) console.log("[pdf] signed url", json.url);
+      return json.url;
+    } catch (e) {
+      if (__DEV__) console.warn("[pdf] fetch failed", (e as Error)?.message);
       return null;
     }
   };
