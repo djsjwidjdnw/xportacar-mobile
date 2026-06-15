@@ -97,10 +97,10 @@ export function VehicleCard({
         <Image
           source={vehicle.photo_url ? { uri: thumb(vehicle.photo_url, 600) } : require("../../assets/icon.png")}
           style={styles.image}
-          // contain on a white 4:3 frame: the WHOLE car is always shown.
-          // (cover was center-cropping tall/portrait phone photos to ~40%.)
-          // White background = luxury-auction standard. Matches the web card.
-          contentFit="contain"
+          // The source is already server-cropped to 4:3 by thumb() (Supabase
+          // resize=cover width+height), so cover fills the 4:3 frame exactly —
+          // no letterboxing of tall portrait photos. Matches the web card.
+          contentFit="cover"
           contentPosition="center"
           transition={150}
         />

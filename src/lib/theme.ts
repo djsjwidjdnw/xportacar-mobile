@@ -55,6 +55,9 @@ export const thumb = (url: string | null | undefined, width = 600): string => {
     if (u.pathname.includes("/storage/v1/object/public/")) {
       u.pathname = u.pathname.replace("/storage/v1/object/public/", "/storage/v1/render/image/public/");
       u.searchParams.set("width", String(width));
+      // 4:3 height + resize=cover → Supabase center-crops the source server-side
+      // so tall portrait phone photos fill the card instead of letterboxing.
+      u.searchParams.set("height", String(Math.round((width * 3) / 4)));
       u.searchParams.set("quality", "70");
       u.searchParams.set("resize", "cover");
       return u.toString();
