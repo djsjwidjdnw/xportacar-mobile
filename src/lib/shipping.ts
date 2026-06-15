@@ -39,7 +39,7 @@ export const FALLBACK_RATES: ShippingRate[] = [
   r("container_genoa", "Genoa", "container", 2300, 20, 25, 23),
   svc("warehouse_dubai", "warehouse", 0, "Warehouse pickup — available immediately", 1),
   svc("door_to_door_eu", "door_to_door", 950, "Door-to-door delivery in the EU", 30, 30, 45),
-  svc("service_tuv", "service", 3500, "German Registration (TÜV)", 40),
+  svc("service_tuv", "service", 3570, "German Registration (TÜV)", 40),
   { ...svc("service_marine_insurance", "service", 150, "Marine insurance: 1.5% of declared value (min €150)", 41), rate_pct: 1.5 },
   svc("service_customs_export_uae", "service", 250, "UAE export customs clearance", 42),
   svc("service_customs_import_eu", "service", 400, "EU import customs + VAT processing", 43),
@@ -73,7 +73,7 @@ export const serviceRate = (rates: ShippingRate[], key: string) =>
 export const PORT_FLAT_EUR = 4500;
 
 // Delivery method is a single choice; German Registration (TÜV) is an additive
-// add-on (+€3500) combinable with any method, so it lives as a separate boolean.
+// add-on (+€3570) combinable with any method, so it lives as a separate boolean.
 export type ShippingMethod =
   | { kind: "warehouse" }
   | { kind: "port"; port: string }
@@ -85,7 +85,7 @@ export interface ShippingChoice {
 }
 
 export function tuvPriceEur(rates: ShippingRate[] = FALLBACK_RATES): number {
-  return serviceRate(rates, "service_tuv")?.base_price_eur ?? 3500;
+  return serviceRate(rates, "service_tuv")?.base_price_eur ?? 3570;
 }
 
 export function getMethodPriceEur(method: ShippingMethod, _rates: ShippingRate[] = FALLBACK_RATES): number {

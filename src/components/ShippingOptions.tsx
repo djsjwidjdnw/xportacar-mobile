@@ -42,7 +42,7 @@ export function ShippingOptions({
 
   const roro = useMemo(() => portRoutes(rates, "roro"), [rates]);
   const doorPrice = serviceRate(rates, "door_to_door_eu")?.base_price_eur ?? 800;
-  const tuvPrice = serviceRate(rates, "service_tuv")?.base_price_eur ?? 3500;
+  const tuvPrice = serviceRate(rates, "service_tuv")?.base_price_eur ?? 3570;
 
   const setMethod = (method: ShippingChoice["method"]) => onChange({ ...value, method });
 
