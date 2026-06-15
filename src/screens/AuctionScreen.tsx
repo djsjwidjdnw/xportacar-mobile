@@ -189,9 +189,12 @@ export function AuctionScreen({
   const buyNow = async () => {
     if (!user || !auction?.buy_now_price_eur) return;
     setSubmitting(true);
-    const { error } = await supabase.from("bids").insert({
-      auction_id: id, bidder_id: user.id, amount_eur: auction.buy_now_price_eur,
-    });
+    // Atomically finalize via the buy_now() RPC: it records the bid, closes the
+    // auction (which auto-creates the invoice), sets the winner and marks the
+    // vehicle sold. The buyer's RLS role can't UPDATE auctions/vehicles, so a
+    // plain bid insert would leave the sale unfinalized — the RPC runs as
+    // SECURITY DEFINER with its own checks (winner is always the caller).
+    const { error } = await supabase.rpc("buy_now", { p_auction_id: id });
     setSubmitting(false);
     setBuyOpen(false);
     if (error) { if (__DEV__) console.warn("[buyNow] failed:", error.message); Alert.alert(t("auction.purchaseFailed"), t("auction.tryAgain")); return; }
