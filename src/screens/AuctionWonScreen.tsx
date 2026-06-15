@@ -17,8 +17,14 @@ import { useCurrency } from "../lib/currency";
 import { useAuth } from "../lib/auth";
 import { useTranslation } from "../lib/i18n";
 import {
-  describeMethod, getMethodPriceEur, tuvPriceEur, type ShippingChoice,
-} from "../components/ShippingOptions";
+  PORT_FLAT_EUR, TUV_EUR,
+  shippingCostEur, distanceFromHamburgCoords, distanceFromHamburgKm,
+} from "../lib/distance";
+import {
+  AddressAutocomplete, EMPTY_DELIVERY_ADDRESS, countryName,
+  type DeliveryAddress,
+} from "../components/AddressAutocomplete";
+import { type ShippingChoice } from "../components/ShippingOptions";
 import type { AuctionRow, VehicleRow, VehicleStatus } from "../lib/types";
 
 interface AuctionFull extends AuctionRow {
@@ -126,7 +132,7 @@ export function AuctionWonScreen({
   route: { params: { id: string; shipping?: ShippingChoice } };
   navigation: { navigate: (s: string, p?: object) => void; goBack: () => void };
 }) {
-  const { id, shipping: shippingParam } = route.params;
+  const { id } = route.params;
   const { user } = useAuth();
   const { format } = useCurrency();
   const { t } = useTranslation();
@@ -135,7 +141,14 @@ export function AuctionWonScreen({
   const [statusEvents, setStatusEvents] = useState<StatusEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(new Date());
-  const [shipping] = useState<ShippingChoice>(shippingParam ?? { method: { kind: "port", port: "Hamburg" }, tuv: false });
+
+  // Shipping + delivery selection (drives the invoice total below).
+  const [shippingMethod, setShippingMethod] = useState<"standard" | "door_to_door">("standard");
+  const [address, setAddress] = useState<DeliveryAddress>(EMPTY_DELIVERY_ADDRESS);
+  const [tuv, setTuv] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [orderSaved, setOrderSaved] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   // Payment proof flow.
   const [proofOpen, setProofOpen] = useState(false);
@@ -262,35 +275,45 @@ export function AuctionWonScreen({
     }
   };
 
-  // Server-rendered PDF for THIS invoice (route: /api/invoice/:id/pdf, served
-  // inline with Content-Disposition: inline). The live 1.0.0 App Store binary
-  // does NOT bundle expo-file-system / expo-sharing / expo-web-browser, so we
-  // use only APIs already compiled into that binary: Linking.openURL to open
-  // the PDF in the system browser, and the built-in React Native Share sheet to
-  // share its link. The PDF is also emailed to the buyer as a real attachment
-  // (server-side), so a downloadable copy always reaches them.
-  const invoicePdfUrl = invoice ? `${WEB_URL}/api/invoice/${invoice.id}/pdf` : null;
-
-  // Open the invoice PDF in the system browser (renders inline; from there the
-  // user can save or share it).
-  const viewPdf = async () => {
-    if (!invoicePdfUrl) return;
+  // Mint a signed, login-free PDF URL from the web app. The bare /pdf route
+  // needs a session cookie that mobile Safari doesn't have (the old "Unauthorized
+  // black screen"); /pdf-url returns a 7-day HMAC-signed URL anyone can open.
+  // OTA-safe: pure fetch + Linking + RN-core Share (no native PDF modules — the
+  // 1.0.0 binary lacks expo-file-system/sharing/web-browser). The PDF is also
+  // emailed to the buyer as a real attachment server-side.
+  const signedPdfUrl = async (): Promise<string | null> => {
+    if (!invoice) return null;
+    const { data: { session } } = await supabase.auth.getSession();
+    const tok = session?.access_token;
+    if (!tok) return null;
     try {
-      await Linking.openURL(invoicePdfUrl);
+      const res = await fetch(`${WEB_URL}/api/invoice/${invoice.id}/pdf-url`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return typeof json?.url === "string" ? json.url : null;
     } catch {
-      Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody"));
+      return null;
     }
   };
 
-  // Share the invoice link via the built-in React Native share sheet (core RN,
-  // no native PDF module). Recipients open the inline PDF in their browser.
+  const viewPdf = async () => {
+    setPdfBusy(true);
+    const url = await signedPdfUrl();
+    setPdfBusy(false);
+    if (!url) { Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody")); return; }
+    try { await Linking.openURL(url); }
+    catch { Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody")); }
+  };
+
   const sharePdf = async () => {
-    if (!invoicePdfUrl) return;
-    try {
-      await Share.share({ url: invoicePdfUrl, message: t("won.sharePdfMessage", { url: invoicePdfUrl }) });
-    } catch {
-      // user dismissed the share sheet
-    }
+    setPdfBusy(true);
+    const url = await signedPdfUrl();
+    setPdfBusy(false);
+    if (!url) { Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody")); return; }
+    try { await Share.share({ url, message: t("won.sharePdfMessage", { url }) }); }
+    catch { /* user dismissed the share sheet */ }
   };
 
   if (loading) return <Spinner label={t("won.loadingInvoice")} />;
@@ -300,12 +323,66 @@ export function AuctionWonScreen({
 
   const hammerEur = auction.current_bid_eur ?? auction.starting_price_eur ?? 0;
   const feeEur = hammerEur * PLATFORM_FEE_PCT;
-  const methodEur = getMethodPriceEur(shipping.method);
-  const tuvEur = shipping.tuv ? tuvPriceEur() : 0;
+  // Door-to-door is priced from the delivery address: €4500 flat + €3.50/km from
+  // Hamburg. Use the geocoded lat/lon (Haversine) when the buyer picked an
+  // autofill suggestion, else fall back to the country/city lookup table.
+  const isDoor = shippingMethod === "door_to_door";
+  const distanceKm = isDoor
+    ? (address.lat != null && address.lon != null
+        ? distanceFromHamburgCoords(address.lat, address.lon)
+        : distanceFromHamburgKm(countryName(address.country), address.city))
+    : null;
+  const methodEur = isDoor ? shippingCostEur("door_to_door", distanceKm ?? 0) : PORT_FLAT_EUR;
+  const tuvEur = tuv ? TUV_EUR : 0;
   const totalEur = hammerEur + feeEur + methodEur + tuvEur;
 
   const v = auction.vehicle;
   const isWinner = !!user && auction.winner_id === user.id;
+
+  // Confirm the order: persist shipping + extras to the invoice and send the
+  // invoice email, via the bearer-authed web endpoint (the buy_now RPC alone
+  // sends no email — this is the unified completion point, matching web).
+  const confirmOrder = async () => {
+    if (!invoice) return;
+    if (isDoor && (!address.line1.trim() || !address.city.trim() || !address.postalCode.trim() || !address.country.trim())) {
+      Alert.alert(t("won.completeAddressTitle"), t("won.completeAddressBody"));
+      return;
+    }
+    setSavingOrder(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const tok = session?.access_token;
+      if (!tok) throw new Error(t("auction.tryAgain"));
+      const body = {
+        shippingMethod,
+        shippingEur: methodEur,
+        distanceKm,
+        ...(isDoor ? {
+          shippingLine1: address.line1,
+          shippingLine2: address.line2,
+          shippingCity: address.city,
+          shippingPostalCode: address.postalCode,
+          shippingCountry: address.country,
+          shippingLatitude: address.lat,
+          shippingLongitude: address.lon,
+        } : {}),
+        extras: tuv ? [{ name: "German Registration (TÜV)", price_eur: TUV_EUR }] : [],
+      };
+      const res = await fetch(`${WEB_URL}/api/invoice/${invoice.id}/finalize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? t("auction.tryAgain"));
+      setOrderSaved(true);
+      Alert.alert(t("won.orderSavedTitle"), t("won.orderSavedBody"));
+    } catch (e) {
+      Alert.alert(t("won.orderFailedTitle"), (e as Error)?.message ?? t("auction.tryAgain"));
+    } finally {
+      setSavingOrder(false);
+    }
+  };
 
   const confirmed = !!invoice?.payment_confirmed_at;
   const createdAt = invoice?.created_at ? new Date(invoice.created_at) : new Date();
@@ -415,6 +492,66 @@ export function AuctionWonScreen({
         </View>
       )}
 
+      {/* Shipping & delivery — choose Standard port or Door-to-door (address) */}
+      {isWinner && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="cube-outline" size={16} color={theme.colors.brand} />
+            <Text style={styles.sectionTitle}>{t("won.shipMethod")}</Text>
+          </View>
+          <View style={{ gap: 10 }}>
+            {/* Standard port */}
+            <Pressable
+              onPress={() => { setShippingMethod("standard"); setOrderSaved(false); }}
+              style={({ pressed }) => [styles.shipCard, !isDoor && styles.shipCardActive, pressed && { opacity: 0.95 }]}
+            >
+              <View style={[styles.radio, !isDoor && styles.radioActive]}>{!isDoor && <View style={styles.radioInner} />}</View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.shipTitle}>{t("won.standardShipping")}</Text>
+                <Text style={styles.shipSub}>{t("won.standardSub")}</Text>
+              </View>
+              <Text style={styles.shipPrice}>{format(PORT_FLAT_EUR)}</Text>
+            </Pressable>
+
+            {/* Door-to-door */}
+            <Pressable
+              onPress={() => { setShippingMethod("door_to_door"); setOrderSaved(false); }}
+              style={({ pressed }) => [styles.shipCard, isDoor && styles.shipCardActive, pressed && { opacity: 0.95 }]}
+            >
+              <View style={[styles.radio, isDoor && styles.radioActive]}>{isDoor && <View style={styles.radioInner} />}</View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.shipTitle}>{t("shipping.doorToDoor")}</Text>
+                <Text style={styles.shipSub}>{t("shipping.doorToDoorSubtitle")}</Text>
+              </View>
+              <Text style={styles.shipPrice}>{format(PORT_FLAT_EUR)}+</Text>
+            </Pressable>
+
+            {isDoor && (
+              <View style={styles.addrCard}>
+                <AddressAutocomplete value={address} onChange={(a) => { setAddress(a); setOrderSaved(false); }} />
+                <Text style={styles.distanceLine}>
+                  {t("addr.distance")}: <Text style={styles.distanceVal}>{distanceKm ?? 0} km</Text>
+                  {" "}({address.lat != null && address.lon != null ? t("addr.located") : t("addr.estimated")}) · {format(methodEur)}
+                </Text>
+              </View>
+            )}
+
+            {/* German Registration (TÜV) — combinable with either method */}
+            <Pressable
+              onPress={() => { setTuv((x) => !x); setOrderSaved(false); }}
+              style={({ pressed }) => [styles.shipCard, tuv && styles.shipCardActive, pressed && { opacity: 0.95 }]}
+            >
+              <View style={[styles.checkbox, tuv && styles.checkboxActive]}>{tuv && <Ionicons name="checkmark" size={13} color={theme.colors.white} />}</View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.shipTitle}>{t("won.germanReg")}</Text>
+                <Text style={styles.shipSub}>{t("shipping.germanRegistrationSubtitle")}</Text>
+              </View>
+              <Text style={styles.shipPrice}>{format(TUV_EUR)}</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       {/* Invoice */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -439,11 +576,11 @@ export function AuctionWonScreen({
           <LineItem label={t("won.hammer")} value={format(hammerEur)} />
           <LineItem label={t("won.platformFee")} value={format(feeEur)} />
           <LineItem
-            label={describeMethod(shipping.method, t)}
+            label={isDoor ? `${t("shipping.doorToDoor")} (${distanceKm ?? 0} km)` : t("won.standardShipping")}
             value={format(methodEur)}
             sub={t("won.selectedDelivery")}
           />
-          {shipping.tuv && (
+          {tuv && (
             <LineItem label={t("won.germanReg")} value={format(tuvEur)} sub={t("won.addOnService")} />
           )}
 
@@ -455,18 +592,35 @@ export function AuctionWonScreen({
 
         <CustomsDisclaimer style={{ marginTop: 12 }} />
 
-        {invoicePdfUrl && (
+        {/* Confirm the shipping + extras selection → persists to the invoice and
+            sends the invoice email (the unified completion point for Buy Now). */}
+        {isWinner && invoice && (
+          <Pressable
+            onPress={confirmOrder}
+            disabled={savingOrder}
+            style={({ pressed }) => [styles.confirmOrderBtn, savingOrder && { opacity: 0.6 }, pressed && { opacity: 0.9 }]}
+          >
+            {orderSaved ? <Ionicons name="checkmark-circle" size={16} color={theme.colors.white} /> : null}
+            <Text style={styles.confirmOrderText}>
+              {savingOrder ? t("won.savingOrder") : orderSaved ? t("won.orderConfirmed") : t("won.confirmOrder")}
+            </Text>
+          </Pressable>
+        )}
+
+        {invoice && (
           <View style={styles.pdfRow}>
             <Pressable
               onPress={viewPdf}
-              style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
+              disabled={pdfBusy}
+              style={({ pressed }) => [styles.pdfBtn, pdfBusy && { opacity: 0.6 }, pressed && { opacity: 0.9 }]}
             >
               <Ionicons name="eye-outline" size={16} color={theme.colors.brand} />
               <Text style={styles.pdfBtnText}>{t("won.viewPdf")}</Text>
             </Pressable>
             <Pressable
               onPress={sharePdf}
-              style={({ pressed }) => [styles.pdfBtn, pressed && { opacity: 0.9 }]}
+              disabled={pdfBusy}
+              style={({ pressed }) => [styles.pdfBtn, pdfBusy && { opacity: 0.6 }, pressed && { opacity: 0.9 }]}
             >
               <Ionicons name="share-outline" size={16} color={theme.colors.brand} />
               <Text style={styles.pdfBtnText}>{t("won.sharePdf")}</Text>
@@ -779,6 +933,23 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight,
   },
   pdfBtnText: { color: theme.colors.brand, fontWeight: "800", fontSize: 13 },
+
+  // Shipping & delivery selection
+  shipCard: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border },
+  shipCardActive: { borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.white },
+  radioActive: { borderColor: theme.colors.brand },
+  radioInner: { width: 9, height: 9, borderRadius: 5, backgroundColor: theme.colors.brand },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.white },
+  checkboxActive: { borderColor: theme.colors.brand, backgroundColor: theme.colors.brand },
+  shipTitle: { fontSize: 13, fontWeight: "800", color: theme.colors.text },
+  shipSub: { fontSize: 11, color: theme.colors.textLight, marginTop: 2, fontWeight: "600", lineHeight: 15 },
+  shipPrice: { fontSize: 13, fontWeight: "800", color: theme.colors.brand },
+  addrCard: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.bgAlt, borderWidth: 1, borderColor: theme.colors.border },
+  distanceLine: { marginTop: 10, fontSize: 12, color: theme.colors.textMuted, fontWeight: "600", lineHeight: 17 },
+  distanceVal: { fontWeight: "800", color: theme.colors.text },
+  confirmOrderBtn: { marginTop: 14, height: 48, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.colors.brand },
+  confirmOrderText: { color: theme.colors.white, fontWeight: "800", fontSize: 15 },
 
   footer: { paddingHorizontal: 16, marginTop: 22, flexDirection: "row", gap: 10 },
   footerOutline: {

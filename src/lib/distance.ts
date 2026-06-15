@@ -37,6 +37,24 @@ export function distanceFromHamburgKm(country: string | null | undefined, city: 
   return entry._default;
 }
 
+// Hamburg port (Hamburger Hafen) — origin for door-to-door distance when the
+// buyer's address is geocoded (Nominatim lat/lon).
+export const HAMBURG_PORT = { lat: 53.5375, lon: 9.9778 };
+
+/** Road-distance estimate (km) from Hamburg port to a lat/lon via Haversine.
+ *  Straight-line × 1.3 detour factor to approximate road km (matching the
+ *  pre-computed table values which are road km). */
+export function distanceFromHamburgCoords(lat: number, lon: number): number {
+  const R = 6371; // km
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat - HAMBURG_PORT.lat);
+  const dLon = toRad(lon - HAMBURG_PORT.lon);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(HAMBURG_PORT.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon / 2) ** 2;
+  const straight = 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  return Math.max(0, Math.round(straight * 1.3));
+}
+
 export type ShippingKind = "standard" | "door_to_door";
 
 export function shippingCostEur(kind: ShippingKind, distanceKm = 0): number {
