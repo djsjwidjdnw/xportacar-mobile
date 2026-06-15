@@ -97,9 +97,10 @@ export function VehicleCard({
         <Image
           source={vehicle.photo_url ? { uri: thumb(vehicle.photo_url, 600) } : require("../../assets/icon.png")}
           style={styles.image}
-          // Bring-A-Trailer style: cover fills the 4:3 frame edge-to-edge, car
-          // centred (some natural crop accepted). Matches the web card.
-          contentFit="cover"
+          // contain on a white 4:3 frame: the WHOLE car is always shown.
+          // (cover was center-cropping tall/portrait phone photos to ~40%.)
+          // White background = luxury-auction standard. Matches the web card.
+          contentFit="contain"
           contentPosition="center"
           transition={150}
         />
