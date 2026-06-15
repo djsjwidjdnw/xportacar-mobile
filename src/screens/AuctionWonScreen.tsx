@@ -7,9 +7,6 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
-import * as WebBrowser from "expo-web-browser";
 
 import { Spinner } from "../components/Spinner";
 import { CurrencyPills } from "../components/CurrencyPills";
@@ -265,49 +262,30 @@ export function AuctionWonScreen({
     }
   };
 
-  // Server-rendered PDF for THIS invoice (route: /api/invoice/:id/pdf).
-  // expo-file-system / expo-sharing are NOT installed, and adding them would
-  // need a native rebuild (not OTA-safe). So we stay OTA-safe:
-  //  • Download → open the PDF URL in the system browser via Linking.openURL,
-  //    where iOS/Android lets the user save or share the file.
-  //  • Share   → the built-in React Native Share sheet with the PDF { url }.
+  // Server-rendered PDF for THIS invoice (route: /api/invoice/:id/pdf, served
+  // inline with Content-Disposition: inline). The live 1.0.0 App Store binary
+  // does NOT bundle expo-file-system / expo-sharing / expo-web-browser, so we
+  // use only APIs already compiled into that binary: Linking.openURL to open
+  // the PDF in the system browser, and the built-in React Native Share sheet to
+  // share its link. The PDF is also emailed to the buyer as a real attachment
+  // (server-side), so a downloadable copy always reaches them.
   const invoicePdfUrl = invoice ? `${WEB_URL}/api/invoice/${invoice.id}/pdf` : null;
 
-  // View the invoice in an in-app browser (expo-web-browser); fall back to the
-  // system browser if it's unavailable.
+  // Open the invoice PDF in the system browser (renders inline; from there the
+  // user can save or share it).
   const viewPdf = async () => {
     if (!invoicePdfUrl) return;
     try {
-      await WebBrowser.openBrowserAsync(invoicePdfUrl);
+      await Linking.openURL(invoicePdfUrl);
     } catch {
-      try {
-        await Linking.openURL(invoicePdfUrl);
-      } catch {
-        Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody"));
-      }
+      Alert.alert(t("won.openInvoiceFailedTitle"), t("won.openInvoiceFailedBody"));
     }
   };
 
-  // Share the ACTUAL PDF file: download it to the cache, then hand the local
-  // file to the system share sheet with a PDF mime type (so Mail / WhatsApp /
-  // AirDrop / Files show a real PDF, not a text link). Falls back to a URL
-  // share if file sharing isn't available or the download fails.
+  // Share the invoice link via the built-in React Native share sheet (core RN,
+  // no native PDF module). Recipients open the inline PDF in their browser.
   const sharePdf = async () => {
-    if (!invoicePdfUrl || !invoice) return;
-    try {
-      if (await Sharing.isAvailableAsync()) {
-        const target = `${FileSystem.cacheDirectory}invoice-${invoice.id}.pdf`;
-        const { uri } = await FileSystem.downloadAsync(invoicePdfUrl, target);
-        await Sharing.shareAsync(uri, {
-          mimeType: "application/pdf",
-          UTI: "com.adobe.pdf",
-          dialogTitle: t("won.sharePdf"),
-        });
-        return;
-      }
-    } catch {
-      // fall through to the URL share
-    }
+    if (!invoicePdfUrl) return;
     try {
       await Share.share({ url: invoicePdfUrl, message: t("won.sharePdfMessage", { url: invoicePdfUrl }) });
     } catch {
