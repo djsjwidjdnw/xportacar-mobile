@@ -8,9 +8,10 @@ import { theme } from "../lib/theme";
 import { useTranslation } from "../lib/i18n";
 
 // Structured door-to-door delivery address with OpenStreetMap (Nominatim)
-// autofill. OTA-safe: pure JS fetch + RN core components, no native modules.
-// (React Native fetch — unlike a browser — lets us set the User-Agent that
-// Nominatim's usage policy requires.)
+// autofill. Country is chosen FIRST and the street search is filtered to that
+// single country (countrycodes=<code>) — searching every EU country at once
+// returned no results. OTA-safe: pure JS fetch + RN core components (RN fetch,
+// unlike a browser, can set the User-Agent Nominatim's policy requires).
 
 export interface DeliveryAddress {
   line1: string;
@@ -42,8 +43,6 @@ export const SHIP_COUNTRIES: { code: string; name: string }[] = [
 export function countryName(code: string): string {
   return SHIP_COUNTRIES.find((c) => c.code === code.toUpperCase())?.name ?? code;
 }
-
-const COUNTRY_CODES = SHIP_COUNTRIES.map((c) => c.code.toLowerCase()).join(",");
 
 type Suggestion = {
   label: string; line1: string; line2: string; city: string;
@@ -77,30 +76,38 @@ export function AddressAutocomplete({
   const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [noResults, setNoResults] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNext = useRef(false);
+  const hasCountry = !!value.country;
 
-  // Debounced Nominatim lookup off the street field (500ms ≈ 1 req/s).
+  // Debounced lookup off the street field (500ms ≈ 1 req/s). Requires a country
+  // first and filters Nominatim to THAT country (countrycodes=<code>).
   useEffect(() => {
     if (skipNext.current) { skipNext.current = false; return; }
     const q = value.line1.trim();
     if (timer.current) clearTimeout(timer.current);
-    if (q.length < 3) { setSuggestions([]); return; }
+    setNoResults(false);
+    if (!value.country || q.length < 3) { setSuggestions([]); setLoading(false); return; }
+    setLoading(true);
     timer.current = setTimeout(async () => {
-      setLoading(true);
       try {
         const params = new URLSearchParams({
-          format: "json", addressdetails: "1", limit: "5", countrycodes: COUNTRY_CODES,
-          q: value.country ? `${q}, ${countryName(value.country)}` : q,
+          format: "json", addressdetails: "1", limit: "5",
+          countrycodes: value.country.toLowerCase(),
+          q,
         });
         const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
           headers: { "User-Agent": "XportACar/1.0 (contact@xportacar.com)", "Accept-Language": "en" },
         });
         const raw = await res.json();
-        setSuggestions(Array.isArray(raw) ? raw.map(toSuggestion) : []);
+        const list = Array.isArray(raw) ? raw.map(toSuggestion) : [];
+        setSuggestions(list);
+        setNoResults(list.length === 0);
       } catch {
         setSuggestions([]);
+        setNoResults(true);
       } finally {
         setLoading(false);
       }
@@ -120,29 +127,48 @@ export function AddressAutocomplete({
       lon: s.lon,
     });
     setSuggestions([]);
+    setNoResults(false);
   };
 
   // Manual edits invalidate the geocoded coordinates (except the unit line).
   const setField = (patch: Partial<DeliveryAddress>, keepCoords = false) =>
     onChange({ ...value, ...patch, ...(keepCoords ? {} : { lat: null, lon: null }) });
 
+  const disabledInput = (extra?: object) => [styles.input, !hasCountry && styles.inputDisabled, extra];
+
   return (
     <View style={{ gap: 10 }}>
-      {/* Street + autofill */}
+      {/* 1. Country FIRST — gates the street autofill */}
+      <View>
+        <Text style={styles.label}>{t("addr.country")} *</Text>
+        <Pressable onPress={() => setPickerOpen(true)} style={({ pressed }) => [styles.input, styles.pickerBtn, pressed && { opacity: 0.9 }]}>
+          <Text style={[styles.pickerText, !hasCountry && { color: theme.colors.textLight }]}>
+            {hasCountry ? countryName(value.country) : t("addr.selectCountryFirst")}
+          </Text>
+          <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
+        </Pressable>
+      </View>
+
+      {/* 2. Street + autofill — enabled once a country is chosen */}
       <View>
         <Text style={styles.label}>{t("addr.street")} *</Text>
         <View style={styles.inputWrap}>
           <TextInput
             value={value.line1}
             onChangeText={(v) => setField({ line1: v })}
-            placeholder={t("addr.streetHint")}
+            editable={hasCountry}
+            placeholder={hasCountry ? t("addr.streetHint") : t("addr.streetDisabledHint")}
             placeholderTextColor={theme.colors.textLight}
             autoCapitalize="words"
             autoCorrect={false}
-            style={styles.input}
+            style={disabledInput()}
           />
           {loading && <ActivityIndicator size="small" color={theme.colors.brand} style={styles.spinner} />}
         </View>
+        {hasCountry && loading && <Text style={styles.searchMsg}>{t("addr.searching")}</Text>}
+        {hasCountry && !loading && noResults && value.line1.trim().length >= 3 && (
+          <Text style={styles.searchMsg}>{t("addr.noResults")}</Text>
+        )}
         {suggestions.length > 0 && (
           <View style={styles.suggestBox}>
             {suggestions.map((s, i) => (
@@ -159,28 +185,31 @@ export function AddressAutocomplete({
         )}
       </View>
 
-      {/* Apartment / unit — keeps coordinates */}
+      {/* 3. Apartment / unit — optional, keeps coordinates */}
       <View>
         <Text style={styles.label}>{t("addr.unit")}</Text>
         <TextInput
           value={value.line2}
           onChangeText={(v) => setField({ line2: v }, true)}
+          editable={hasCountry}
           placeholder="Apt 4B"
           placeholderTextColor={theme.colors.textLight}
           autoCapitalize="words"
-          style={styles.input}
+          style={disabledInput()}
         />
       </View>
 
+      {/* 4. Postal + City — autofilled but editable */}
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>{t("addr.postal")} *</Text>
           <TextInput
             value={value.postalCode}
             onChangeText={(v) => setField({ postalCode: v })}
+            editable={hasCountry}
             placeholder="80539"
             placeholderTextColor={theme.colors.textLight}
-            style={styles.input}
+            style={disabledInput()}
           />
         </View>
         <View style={{ flex: 1.4 }}>
@@ -188,23 +217,13 @@ export function AddressAutocomplete({
           <TextInput
             value={value.city}
             onChangeText={(v) => setField({ city: v })}
+            editable={hasCountry}
             placeholder="Munich"
             placeholderTextColor={theme.colors.textLight}
             autoCapitalize="words"
-            style={styles.input}
+            style={disabledInput()}
           />
         </View>
-      </View>
-
-      {/* Country picker */}
-      <View>
-        <Text style={styles.label}>{t("addr.country")} *</Text>
-        <Pressable onPress={() => setPickerOpen(true)} style={({ pressed }) => [styles.input, styles.pickerBtn, pressed && { opacity: 0.9 }]}>
-          <Text style={[styles.pickerText, !value.country && { color: theme.colors.textLight }]}>
-            {value.country ? countryName(value.country) : t("addr.selectCountry")}
-          </Text>
-          <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
-        </Pressable>
       </View>
 
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
@@ -243,6 +262,8 @@ const styles = StyleSheet.create({
     height: 44, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border,
     backgroundColor: theme.colors.white, paddingHorizontal: 12, fontSize: 14, color: theme.colors.text,
   },
+  inputDisabled: { backgroundColor: theme.colors.bgAlt, color: theme.colors.textLight },
+  searchMsg: { marginTop: 6, fontSize: 12, color: theme.colors.textMuted, fontWeight: "600" },
   spinner: { position: "absolute", right: 12 },
   row: { flexDirection: "row", gap: 10 },
   suggestBox: { marginTop: 6, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.white, overflow: "hidden" },
