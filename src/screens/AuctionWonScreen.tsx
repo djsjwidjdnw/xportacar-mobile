@@ -68,11 +68,13 @@ const PLATFORM_FEE_PCT = 0.029;
 const CONFIRM_WINDOW_HOURS = 36;
 const PAYMENT_WORKING_DAYS = 5;
 
-// Web origin that serves the server-rendered PDF invoice. Ships in the OTA
-// manifest (extra.webUrl); falls back to production.
+// Web origin for the invoice API (finalize / pdf-url / pdf). MUST be the
+// canonical www host: the apex xportacar.com 307-redirects to www, and fetch
+// DROPS the Authorization header on that cross-host redirect → 401. Hitting www
+// directly preserves the bearer token.
 const WEB_URL =
   (Constants.expoConfig?.extra as { webUrl?: string } | undefined)?.webUrl ??
-  "https://xportacar.com";
+  "https://www.xportacar.com";
 
 interface InvoiceRow {
   id: string;

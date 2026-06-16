@@ -59,7 +59,7 @@ export function LoginScreen({ navigation }: { navigation: { navigate: (s: string
     // don't leak whether an account exists for this email.
     try {
       await supabase.auth.resetPasswordForEmail(addr, {
-        redirectTo: "https://xportacar.com/reset-password/callback",
+        redirectTo: "https://www.xportacar.com/reset-password/callback",
       });
     } catch { /* neutral — show sent regardless */ }
     setResetSending(false);

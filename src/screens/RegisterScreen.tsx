@@ -11,9 +11,10 @@ import { theme } from "../lib/theme";
 import { registerForPush } from "../lib/push";
 
 // Web origin for the welcome-email bridge. Ships in the OTA manifest (extra).
+// Canonical www host (apex 307-redirects to www).
 const WEB_URL =
   (Constants.expoConfig?.extra as { webUrl?: string } | undefined)?.webUrl ??
-  "https://xportacar.com";
+  "https://www.xportacar.com";
 
 // The handle_new_user trigger normally creates the profile row atomically with
 // the auth user, but be resilient: retry-read briefly, then upsert as a
