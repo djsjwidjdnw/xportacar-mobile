@@ -69,6 +69,16 @@ export interface VehicleDamageRow {
   photo_url: string | null;
 }
 
+// One row per body panel (unique on vehicle_id + panel). `panel` is a canonical
+// English key (e.g. "front_bumper", "roof"); the per-panel gauge photo lives on
+// photo_url of this same row (NOT in vehicle_photos). Written by the inspector app.
+export interface PaintThicknessReadingRow {
+  panel: string;
+  reading_microns: number | null;
+  photo_url: string | null;
+  notes: string | null;
+}
+
 export interface BidRow {
   id: string;
   auction_id: string;

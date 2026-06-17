@@ -21,7 +21,7 @@ import {
 import { useCurrency } from "../lib/currency";
 import { useTranslation } from "../lib/i18n";
 import { useAuth } from "../lib/auth";
-import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow } from "../lib/types";
+import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow, PaintThicknessReadingRow } from "../lib/types";
 
 // PostgREST returns the embedded `auctions` row as an OBJECT (not an
 // array) when the parent FK is unique, which auctions.vehicle_id is. We
@@ -47,6 +47,36 @@ const SEVERITY_COLOR: Record<string, { bg: string; fg: string; border: string }>
   major:    { bg: theme.colors.errorBg,   fg: theme.colors.error, border: "#fda29b" },
 };
 
+// Canonical paint-panel order + English key → i18n label key.
+const PAINT_PANEL_ORDER = [
+  "front_bumper", "hood", "front_left_fender", "front_right_fender",
+  "front_left_door", "front_right_door", "rear_left_door", "rear_right_door",
+  "trunk", "roof",
+];
+const PANEL_LABEL_KEY: Record<string, string> = {
+  front_bumper: "vehicle.panelFrontBumper",
+  hood: "vehicle.panelHood",
+  front_left_fender: "vehicle.panelFrontLeftFender",
+  front_right_fender: "vehicle.panelFrontRightFender",
+  front_left_door: "vehicle.panelFrontLeftDoor",
+  front_right_door: "vehicle.panelFrontRightDoor",
+  rear_left_door: "vehicle.panelRearLeftDoor",
+  rear_right_door: "vehicle.panelRearRightDoor",
+  trunk: "vehicle.panelTrunk",
+  roof: "vehicle.panelRoof",
+};
+
+// Repaint-detection bands (shared verbatim with the web buyer app):
+//   < 150 µm   → factory  (green)   factory paint, no repair
+//  150–250 µm  → touch-up (amber)   minor touch-up possible
+//   > 250 µm   → repaint  (red)     likely repainted or filler
+function paintBand(microns: number | null): { labelKey: string; bg: string; fg: string; border: string } {
+  const n = Number(microns);
+  if (!Number.isFinite(n) || n < 150) return { labelKey: "vehicle.paintBandFactory", bg: "#ecfdf3", fg: theme.colors.success, border: "#a6f4c5" };
+  if (n <= 250) return { labelKey: "vehicle.paintBandTouchup", bg: theme.colors.warningBg, fg: "#b54708", border: "#fedf89" };
+  return { labelKey: "vehicle.paintBandRepaint", bg: theme.colors.errorBg, fg: theme.colors.error, border: "#fda29b" };
+}
+
 export function VehicleDetailScreen({
   route, navigation,
 }: {
@@ -63,6 +93,7 @@ export function VehicleDetailScreen({
   const [photoIndex, setPhotoIndex] = useState(0);
   const [shipping, setShipping] = useState<ShippingChoice>({ method: { kind: "port", port: "Hamburg" }, tuv: false });
   const [reportOpen, setReportOpen] = useState(false);
+  const [paintReadings, setPaintReadings] = useState<PaintThicknessReadingRow[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [shipRates, setShipRates] = useState<ShippingRate[]>(FALLBACK_RATES);
   useEffect(() => { let on = true; getShippingRates().then((r) => { if (on) setShipRates(r); }); return () => { on = false; }; }, []);
@@ -83,6 +114,22 @@ export function VehicleDetailScreen({
 
       const v = (data as VehicleFull) ?? null;
       setVehicle(v);
+
+      // Per-panel paint-thickness readings live in their own table (not embedded
+      // above) — fetch separately, mirroring the web buyer report, then order by
+      // the canonical panel sequence.
+      const { data: paintRows } = await supabase
+        .from("paint_thickness_readings")
+        .select("panel, reading_microns, photo_url, notes")
+        .eq("vehicle_id", id);
+      if (paintRows) {
+        const sorted = (paintRows as PaintThicknessReadingRow[]).slice().sort((a, b) => {
+          const ia = PAINT_PANEL_ORDER.indexOf(a.panel);
+          const ib = PAINT_PANEL_ORDER.indexOf(b.panel);
+          return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+        });
+        setPaintReadings(sorted);
+      }
 
       // …then fall back to a direct auctions query if the embed didn't
       // return one. Belt-and-braces because PostgREST sometimes returns
@@ -428,6 +475,7 @@ export function VehicleDetailScreen({
         vehicle={vehicle}
         photos={photos}
         damages={vehicle.vehicle_damages}
+        paintReadings={paintReadings}
       />
 
       {/* Photo lightbox — centred, dark backdrop, tap anywhere to close */}
@@ -455,13 +503,14 @@ export function VehicleDetailScreen({
 }
 
 function InspectionReportModal({
-  visible, onClose, vehicle, photos, damages,
+  visible, onClose, vehicle, photos, damages, paintReadings,
 }: {
   visible: boolean;
   onClose: () => void;
   vehicle: VehicleFull;
   photos: VehiclePhotoRow[];
   damages: VehicleDamageRow[];
+  paintReadings: PaintThicknessReadingRow[];
 }) {
   const { t } = useTranslation();
   const inspectedOn = vehicle.inspection_date
@@ -469,6 +518,12 @@ function InspectionReportModal({
         weekday: "short", day: "numeric", month: "long", year: "numeric",
       })
     : "—";
+  // Drop rows without a real gauge reading — a null reading_microns coerces to 0
+  // (Number(null) === 0), which is finite and < 150, so an unmeasured panel would
+  // otherwise show as a green "0 µm · factory paint" card.
+  const validPaint = paintReadings.filter(
+    (r) => Number.isFinite(Number(r.reading_microns)) && Number(r.reading_microns) > 0,
+  );
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
@@ -518,6 +573,61 @@ function InspectionReportModal({
                 {photos.map((p) => (
                   <Image key={p.id} source={{ uri: p.url }} style={styles.reportPhoto} contentFit="cover" />
                 ))}
+              </View>
+            </View>
+          )}
+
+          {/* Paint thickness — per-panel gauge readings + photos + colour band */}
+          {validPaint.length > 0 && (
+            <View style={{ marginTop: 20 }}>
+              <Text style={styles.reportSectionTitle}>{t("vehicle.paintThickness")}</Text>
+              <Text style={styles.paintSub}>{t("vehicle.paintThicknessSub")}</Text>
+
+              <View style={styles.paintLegend}>
+                {[
+                  { key: "vehicle.paintBandFactory", c: theme.colors.success, r: "<150µm" },
+                  { key: "vehicle.paintBandTouchup", c: "#b54708", r: "150–250µm" },
+                  { key: "vehicle.paintBandRepaint", c: theme.colors.error, r: ">250µm" },
+                ].map((b) => (
+                  <View key={b.key} style={styles.paintLegendItem}>
+                    <View style={[styles.paintLegendDot, { backgroundColor: b.c }]} />
+                    <Text style={styles.paintLegendText}>{t(b.key)}</Text>
+                    <Text style={styles.paintLegendRange}>{b.r}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ gap: 10 }}>
+                {validPaint.map((r) => {
+                  const band = paintBand(r.reading_microns);
+                  const labelKey = PANEL_LABEL_KEY[r.panel];
+                  const panelLabel = labelKey ? t(labelKey) : r.panel;
+                  const microns = Number(r.reading_microns);
+                  return (
+                    <View key={r.panel} style={styles.paintCard}>
+                      {r.photo_url ? (
+                        <Image source={{ uri: r.photo_url }} style={styles.paintPhoto} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.paintPhoto, styles.paintNoPhoto]}>
+                          <Ionicons name="color-fill-outline" size={20} color={theme.colors.textLight} />
+                        </View>
+                      )}
+                      <View style={styles.paintBody}>
+                        <View style={styles.paintTopRow}>
+                          <Text style={styles.paintPanel} numberOfLines={1}>{panelLabel}</Text>
+                          <Text style={[styles.paintMicrons, { color: band.fg }]}>
+                            {Number.isFinite(microns) ? `${microns} µm` : "—"}
+                          </Text>
+                        </View>
+                        <View style={[styles.paintPill, { backgroundColor: band.bg, borderColor: band.border }]}>
+                          <View style={[styles.paintPillDot, { backgroundColor: band.fg }]} />
+                          <Text style={[styles.paintPillText, { color: band.fg }]}>{t(band.labelKey)}</Text>
+                        </View>
+                        {r.notes ? <Text style={styles.paintNotes}>{r.notes}</Text> : null}
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -738,6 +848,25 @@ const styles = StyleSheet.create({
   reportNotesText: { fontSize: 13, lineHeight: 20, color: theme.colors.textMuted },
   reportPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   reportPhoto:   { width: REPORT_PHOTO_W, height: REPORT_PHOTO_W * 0.75, borderRadius: 10, backgroundColor: theme.colors.bgAlt },
+
+  // Paint thickness section
+  paintSub:        { fontSize: 12, color: theme.colors.textLight, marginTop: -6, marginBottom: 10 },
+  paintLegend:     { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 12 },
+  paintLegendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  paintLegendDot:  { width: 8, height: 8, borderRadius: 4 },
+  paintLegendText: { fontSize: 11, fontWeight: "700", color: theme.colors.textMuted },
+  paintLegendRange:{ fontSize: 11, color: theme.colors.textLight },
+  paintCard:       { flexDirection: "row", gap: 12, padding: 12, backgroundColor: theme.colors.white, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border },
+  paintPhoto:      { width: 64, height: 64, borderRadius: 10, backgroundColor: theme.colors.bgAlt },
+  paintNoPhoto:    { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.colors.border },
+  paintBody:       { flex: 1, justifyContent: "center" },
+  paintTopRow:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  paintPanel:      { flex: 1, fontSize: 14, fontWeight: "800", color: theme.colors.text },
+  paintMicrons:    { fontSize: 15, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  paintPill:       { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 8, paddingVertical: 3, borderRadius: theme.radius.full, borderWidth: 1 },
+  paintPillDot:    { width: 6, height: 6, borderRadius: 3 },
+  paintPillText:   { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
+  paintNotes:      { fontSize: 12, color: theme.colors.textMuted, marginTop: 6, lineHeight: 17 },
   reportDamageCard: {
     flexDirection: "row", gap: 12, padding: 12,
     backgroundColor: theme.colors.white, borderRadius: 12,
