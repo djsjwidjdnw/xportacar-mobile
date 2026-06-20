@@ -198,24 +198,6 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
           <TextInput value={fullName} onChangeText={setFullName} placeholder="Klaus Weber" style={styles.input} placeholderTextColor={theme.colors.textLight} />
         </Field>
 
-        {/* Business toggle */}
-        <Field label={t("register.businessQ")}>
-          <View style={styles.segmentRow}>
-            <Pressable
-              onPress={() => setIsBusiness(true)}
-              style={[styles.segment, isBusiness && styles.segmentActive]}
-            >
-              <Text style={[styles.segmentText, isBusiness && styles.segmentTextActive]}>{t("register.yes")}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setIsBusiness(false)}
-              style={[styles.segment, !isBusiness && styles.segmentActive]}
-            >
-              <Text style={[styles.segmentText, !isBusiness && styles.segmentTextActive]}>{t("register.no")}</Text>
-            </Pressable>
-          </View>
-        </Field>
-
         <Field label={t("auth.company")} required={isBusiness}>
           <TextInput value={company} onChangeText={setCompany} placeholder="AutoHaus Weber GmbH" style={styles.input} placeholderTextColor={theme.colors.textLight} />
         </Field>
@@ -279,6 +261,24 @@ export function RegisterScreen({ navigation }: { navigation: { goBack: () => voi
           file={personalId}
           onPick={setPersonalId}
         />
+
+        {/* Business toggle — drives whether a trade licence is required */}
+        <Field label={t("register.businessQ")}>
+          <View style={styles.segmentRow}>
+            <Pressable
+              onPress={() => setIsBusiness(true)}
+              style={[styles.segment, isBusiness && styles.segmentActive]}
+            >
+              <Text style={[styles.segmentText, isBusiness && styles.segmentTextActive]}>{t("register.yes")}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setIsBusiness(false)}
+              style={[styles.segment, !isBusiness && styles.segmentActive]}
+            >
+              <Text style={[styles.segmentText, !isBusiness && styles.segmentTextActive]}>{t("register.no")}</Text>
+            </Pressable>
+          </View>
+        </Field>
 
         {/* Trade licence — business only */}
         {isBusiness && (
