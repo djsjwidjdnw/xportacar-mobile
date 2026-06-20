@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
@@ -6,13 +6,24 @@ import {
 // horizontal one for the recent-bids carousel.
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTranslation, SUPPORTED, type Locale } from "../lib/i18n";
 import { theme, formatEur, formatMonthYear, isAuctionEnded, isAuctionLive } from "../lib/theme";
+import {
+  pickKycImage, pickKycDocument, uploadKycDocs,
+  type PickedFile, type IdSubtype,
+} from "../lib/kycUpload";
 import type { ProfileRow } from "../lib/types";
+
+const KYC_ID_TYPES: { value: IdSubtype; key: string }[] = [
+  { value: "passport",        key: "register.idPassport" },
+  { value: "drivers_license", key: "register.idDriversLicense" },
+  { value: "national_id",     key: "register.idNationalId" },
+];
 
 interface ExtendedProfile extends ProfileRow {
   created_at?: string | null;
@@ -41,10 +52,17 @@ const LANG_LABELS: Record<Locale, { label: string; flag: string }> = {
 };
 
 export function ProfileScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
-  const { user, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
   const { t, locale, setLocale } = useTranslation();
   const [profile, setProfile] = useState<ExtendedProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // KYC re-submit (inline section, shown from the banner)
+  const [kycOpen, setKycOpen] = useState(false);
+  const [kycIdType, setKycIdType] = useState<IdSubtype | null>(null);
+  const [kycPersonalId, setKycPersonalId] = useState<PickedFile | null>(null);
+  const [kycTradeLicense, setKycTradeLicense] = useState<PickedFile | null>(null);
+  const [kycSubmitting, setKycSubmitting] = useState(false);
   const [fullName, setFullName] = useState("");
   const [company, setCompany]   = useState("");
   const [country, setCountry]   = useState("");
@@ -67,11 +85,25 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
   const [pwShowConfirm, setPwShowConfirm] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
 
+  // Load the profile row (select("*") returns the new kyc_rejection_reason +
+  // kyc_is_business columns too). Pulled into a callback so we can re-run it on
+  // screen focus — the KYC banner then reflects admin approval without a reload.
+  const loadProfile = useCallback(async () => {
+    if (!user) return;
+    const { data: pRow } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+    const p = pRow as ExtendedProfile | null;
+    setProfile(p);
+    setFullName(p?.full_name ?? "");
+    setCompany(p?.company_name ?? "");
+    setCountry(p?.country ?? "");
+    setPhone(p?.phone ?? "");
+  }, [user]);
+
   useEffect(() => {
     if (!user) { setLoading(false); return; }
     (async () => {
-      const [{ data: pRow }, { data: bRow }] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).single(),
+      const [, { data: bRow }] = await Promise.all([
+        loadProfile(),
         supabase
           .from("bids")
           .select(`
@@ -85,16 +117,19 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
           .order("created_at", { ascending: false })
           .limit(30),
       ]);
-      const p = pRow as ExtendedProfile | null;
-      setProfile(p);
-      setFullName(p?.full_name ?? "");
-      setCompany(p?.company_name ?? "");
-      setCountry(p?.country ?? "");
-      setPhone(p?.phone ?? "");
       setBids((bRow as unknown as RecentBid[]) ?? []);
       setLoading(false);
     })();
-  }, [user]);
+  }, [user, loadProfile]);
+
+  // Refetch the profile whenever the screen regains focus so the KYC banner
+  // reflects admin approval/rejection. Skips the very first focus (the effect
+  // above already loaded it) is not necessary — a cheap single-row read.
+  useFocusEffect(
+    useCallback(() => {
+      if (user) void loadProfile();
+    }, [user, loadProfile]),
+  );
 
   const save = async () => {
     if (!user) return;
@@ -166,6 +201,42 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
       Alert.alert(t("deleteAccount.title"), t("deleteAccount.failed"));
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openKycResubmit = () => {
+    setKycIdType(null);
+    setKycPersonalId(null);
+    setKycTradeLicense(null);
+    setKycOpen((v) => !v);
+  };
+
+  const submitKyc = async () => {
+    if (kycSubmitting) return;
+    const businessAcct = !!profile?.kyc_is_business;
+    if (!kycIdType) { Alert.alert(t("register.kycStepTitle"), t("register.needIdType")); return; }
+    if (!kycPersonalId) { Alert.alert(t("register.kycStepTitle"), t("register.needPersonalId")); return; }
+    if (businessAcct && !kycTradeLicense) { Alert.alert(t("register.kycStepTitle"), t("register.needTradeLicense")); return; }
+    const accessToken = session?.access_token;
+    if (!accessToken) return;
+    setKycSubmitting(true);
+    try {
+      const res = await uploadKycDocs({
+        accessToken,
+        personalId: kycPersonalId,
+        idSubtype: kycIdType,
+        tradeLicense: businessAcct ? kycTradeLicense : null,
+        isBusiness: businessAcct,
+      });
+      if (!res.ok) {
+        Alert.alert(t("profile.kycResubmit"), res.error ?? t("register.createFailedBody"));
+        return;
+      }
+      setKycOpen(false);
+      await loadProfile();
+      Alert.alert(t("profile.kycResubmit"), t("profile.kycResubmitDone"));
+    } finally {
+      setKycSubmitting(false);
     }
   };
 
@@ -255,6 +326,88 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
           )}
         </View>
       </LinearGradient>
+
+      {/* KYC status banner — shown while pending or rejected. */}
+      {(profile?.kyc_status === "pending" || profile?.kyc_status === "rejected") && (() => {
+        const rejected = profile.kyc_status === "rejected";
+        return (
+          <View style={[styles.kycBanner, rejected ? styles.kycBannerError : styles.kycBannerInfo]}>
+            <View style={styles.kycBannerHead}>
+              <Ionicons
+                name={rejected ? "alert-circle" : "time-outline"}
+                size={18}
+                color={rejected ? theme.colors.error : theme.colors.brand}
+              />
+              <Text style={[styles.kycBannerTitle, { color: rejected ? theme.colors.error : theme.colors.brand }]}>
+                {rejected ? t("profile.kycBannerRejectedTitle") : t("profile.kycBannerPendingTitle")}
+              </Text>
+            </View>
+            <Text style={styles.kycBannerBody}>
+              {rejected ? t("profile.kycBannerRejectedBody") : t("profile.kycBannerPendingBody")}
+            </Text>
+            {rejected && profile.kyc_rejection_reason ? (
+              <Text style={styles.kycReason}>
+                <Text style={styles.kycReasonLabel}>{t("profile.kycReasonLabel")}: </Text>
+                {profile.kyc_rejection_reason}
+              </Text>
+            ) : null}
+
+            {rejected && (
+              <Pressable
+                onPress={openKycResubmit}
+                style={({ pressed }) => [styles.kycResubmitBtn, pressed && { opacity: 0.9 }]}
+              >
+                <Ionicons name="cloud-upload-outline" size={16} color={theme.colors.white} />
+                <Text style={styles.kycResubmitText}>{t("profile.kycResubmit")}</Text>
+              </Pressable>
+            )}
+
+            {/* Inline re-submit section */}
+            {kycOpen && (
+              <View style={styles.kycForm}>
+                <Text style={styles.kycFieldLabel}>{t("register.idType")}</Text>
+                <View style={styles.kycIdRow}>
+                  {KYC_ID_TYPES.map((it) => {
+                    const active = kycIdType === it.value;
+                    return (
+                      <Pressable
+                        key={it.value}
+                        onPress={() => setKycIdType(it.value)}
+                        style={[styles.kycIdChip, active && styles.kycIdChipActive]}
+                      >
+                        <Text style={[styles.kycIdText, active && styles.kycIdTextActive]} numberOfLines={1}>
+                          {t(it.key)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={[styles.kycFieldLabel, { marginTop: 12 }]}>{t("register.personalId")}</Text>
+                <KycPicker file={kycPersonalId} onPick={setKycPersonalId} />
+
+                {profile.kyc_is_business && (
+                  <>
+                    <Text style={[styles.kycFieldLabel, { marginTop: 12 }]}>{t("register.tradeLicense")}</Text>
+                    <KycPicker file={kycTradeLicense} onPick={setKycTradeLicense} />
+                  </>
+                )}
+
+                <Pressable
+                  onPress={submitKyc}
+                  disabled={kycSubmitting}
+                  style={({ pressed }) => [styles.kycSubmitBtn, kycSubmitting && { opacity: 0.6 }, pressed && { opacity: 0.9 }]}
+                >
+                  {kycSubmitting && <ActivityIndicator size="small" color={theme.colors.white} />}
+                  <Text style={styles.kycSubmitText}>
+                    {kycSubmitting ? t("register.uploading") : t("profile.kycResubmit")}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        );
+      })()}
 
       {/* Recent bid activity — horizontal scroll cards with See All link */}
       <View style={styles.bidsHeaderRow}>
@@ -619,6 +772,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// Photo-or-file picker used by the KYC re-submit section. Mirrors the picker in
+// RegisterScreen / AuctionWonScreen.
+function KycPicker({ file, onPick }: { file: PickedFile | null; onPick: (f: PickedFile | null) => void }) {
+  const { t } = useTranslation();
+  const choosePhoto = async () => { const f = await pickKycImage(t); if (f) onPick(f); };
+  const chooseFile  = async () => { const f = await pickKycDocument(); if (f) onPick(f); };
+  return (
+    <>
+      <View style={styles.kycPickRow}>
+        <Pressable onPress={choosePhoto} style={({ pressed }) => [styles.kycPickBtn, pressed && { opacity: 0.9 }]}>
+          <Ionicons name="image-outline" size={18} color={theme.colors.brand} />
+          <Text style={styles.kycPickText}>{t("register.choosePhoto")}</Text>
+        </Pressable>
+        <Pressable onPress={chooseFile} style={({ pressed }) => [styles.kycPickBtn, pressed && { opacity: 0.9 }]}>
+          <Ionicons name="document-outline" size={18} color={theme.colors.brand} />
+          <Text style={styles.kycPickText}>{t("register.chooseFile")}</Text>
+        </Pressable>
+      </View>
+      {file && (
+        <View style={styles.kycFileRow}>
+          <Ionicons name="checkmark-circle" size={16} color={theme.colors.success} />
+          <Text style={styles.kycFileName} numberOfLines={1}>{file.name}</Text>
+          <Pressable onPress={() => onPick(null)} hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color={theme.colors.textLight} />
+          </Pressable>
+        </View>
+      )}
+    </>
+  );
+}
+
 function makeInitials(name?: string | null, email?: string | null): string {
   const source = (name && name.trim()) || (email && email.split("@")[0]) || "?";
   const parts = source.split(/[\s._-]+/).filter(Boolean);
@@ -653,6 +837,44 @@ const styles = StyleSheet.create({
   tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   tag:    { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: theme.radius.full },
   tagText:{ fontSize: 11, fontWeight: "800" },
+
+  // KYC status banner + inline re-submit
+  kycBanner: { marginHorizontal: 16, marginTop: -4, marginBottom: 4, padding: 16, borderRadius: theme.radius.xl, borderWidth: 1 },
+  kycBannerInfo:  { backgroundColor: theme.colors.brandLight, borderColor: "#b2ddff" },
+  kycBannerError: { backgroundColor: theme.colors.errorBg, borderColor: "#fda29b" },
+  kycBannerHead:  { flexDirection: "row", alignItems: "center", gap: 8 },
+  kycBannerTitle: { fontSize: 14, fontWeight: "800" },
+  kycBannerBody:  { fontSize: 12, color: theme.colors.textMuted, lineHeight: 18, marginTop: 6 },
+  kycReason:      { fontSize: 12, color: theme.colors.text, lineHeight: 18, marginTop: 8 },
+  kycReasonLabel: { fontWeight: "800", color: theme.colors.error },
+  kycResubmitBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    marginTop: 12, height: 44, borderRadius: theme.radius.md, backgroundColor: theme.colors.error,
+  },
+  kycResubmitText: { color: theme.colors.white, fontWeight: "800", fontSize: 13 },
+  kycForm: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.06)" },
+  kycFieldLabel: { fontSize: 11, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 },
+  kycIdRow: { flexDirection: "row", gap: 8 },
+  kycIdChip: {
+    flex: 1, height: 40, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.borderStrong,
+    alignItems: "center", justifyContent: "center", paddingHorizontal: 6, backgroundColor: theme.colors.white,
+  },
+  kycIdChipActive: { borderColor: theme.colors.brand, backgroundColor: theme.colors.brandLight },
+  kycIdText: { fontSize: 12, fontWeight: "700", color: theme.colors.textMuted },
+  kycIdTextActive: { color: theme.colors.brand },
+  kycPickRow: { flexDirection: "row", gap: 10 },
+  kycPickBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    height: 44, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.brand, backgroundColor: theme.colors.white,
+  },
+  kycPickText: { color: theme.colors.brand, fontWeight: "800", fontSize: 13 },
+  kycFileRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, padding: 10, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.white },
+  kycFileName: { flex: 1, fontSize: 13, color: theme.colors.text, fontWeight: "600" },
+  kycSubmitBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    marginTop: 14, height: 48, borderRadius: theme.radius.lg, backgroundColor: theme.colors.brand,
+  },
+  kycSubmitText: { color: theme.colors.white, fontWeight: "800", fontSize: 15 },
 
   // Section headers
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10 },

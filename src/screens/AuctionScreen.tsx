@@ -60,6 +60,11 @@ export function AuctionScreen({
   const [proxyOn, setProxyOn] = useState(false);
   const [proxyMaxStr, setProxyMaxStr] = useState("");
 
+  // Buyer KYC status — bidding / buy-now is gated server-side (RLS + RPC) on
+  // kyc_status === "verified". Pre-check here for clear messaging; the server
+  // still enforces it (see the KYC error handling in placeBid/buyNow).
+  const [kycStatus, setKycStatus] = useState<"pending" | "verified" | "rejected" | null>(null);
+
   const amount = Number(amountStr);
   const proxyMax = Number(proxyMaxStr);
 
@@ -110,8 +115,37 @@ export function AuctionScreen({
     return () => { supabase.removeChannel(ch); };
   }, [id, refresh, bids, user, t]);
 
+  // Load the signed-in buyer's KYC status (drives the verify-to-bid gate).
+  useEffect(() => {
+    if (!user) { setKycStatus(null); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("profiles").select("kyc_status").eq("id", user.id).maybeSingle();
+      if (!cancelled) {
+        setKycStatus((data?.kyc_status as "pending" | "verified" | "rejected" | undefined) ?? null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // Show the verify-to-bid message. Wording differs for pending vs rejected.
+  const alertVerifyToBid = useCallback(() => {
+    Alert.alert(
+      t("auction.verifyToBidTitle"),
+      kycStatus === "rejected" ? t("auction.verifyToBidRejected") : t("auction.verifyToBidPending"),
+    );
+  }, [kycStatus, t]);
+
   const currentBid = auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0;
   const minNext = currentBid + bidIncrement(currentBid);
+
+  // The server rejects unverified buyers with a KYC_REQUIRED code or a policy
+  // (RLS) violation. Detect either so we can show the same friendly message.
+  const isKycError = (msg?: string): boolean => {
+    const m = (msg ?? "").toLowerCase();
+    return m.includes("kyc") || m.includes("verif") || m.includes("row-level security") || m.includes("policy");
+  };
 
   // Pre-fill the minimum bid ONCE when the auction first loads…
   useEffect(() => {
@@ -162,6 +196,9 @@ export function AuctionScreen({
 
   const placeBid = async () => {
     if (!user) { Alert.alert(t("auction.signInRequired"), t("auction.signInToBid")); return; }
+    // KYC gate: bidding is allowed only when verified. The server enforces this
+    // too — this is the friendly pre-check.
+    if (kycStatus !== "verified") { alertVerifyToBid(); return; }
     if (amount < minNext) { Alert.alert(t("auction.bidTooLow"), t("auction.bidTooLowBody", { price: format(minNext) })); return; }
     if (proxyOn && proxyMax < amount) {
       Alert.alert(t("auction.proxyTooLow"), t("auction.proxyTooLowBody"));
@@ -176,7 +213,13 @@ export function AuctionScreen({
       proxy_max_eur: proxyOn ? proxyMax : null,
     });
     setSubmitting(false);
-    if (error) { if (__DEV__) console.warn("[bid] failed:", error.message); Alert.alert(t("auction.bidFailed"), t("auction.tryAgain")); return; }
+    if (error) {
+      if (__DEV__) console.warn("[bid] failed:", error.message);
+      // The RLS/RPC may reject an unverified buyer even if our pre-check passed
+      // (e.g. status changed). Surface the verify message for KYC errors.
+      if (isKycError(error.message)) { alertVerifyToBid(); return; }
+      Alert.alert(t("auction.bidFailed"), t("auction.tryAgain")); return;
+    }
     if (proxyOn) {
       Alert.alert(
         t("auction.proxyPlacedTitle"),
@@ -188,6 +231,8 @@ export function AuctionScreen({
 
   const buyNow = async () => {
     if (!user || !auction?.buy_now_price_eur) return;
+    // KYC gate: Buy Now is allowed only when verified (server-enforced too).
+    if (kycStatus !== "verified") { setBuyOpen(false); alertVerifyToBid(); return; }
     setSubmitting(true);
     // Atomically finalize via the buy_now() RPC: it records the bid, closes the
     // auction (which auto-creates the invoice), sets the winner and marks the
@@ -197,7 +242,11 @@ export function AuctionScreen({
     const { error } = await supabase.rpc("buy_now", { p_auction_id: id });
     setSubmitting(false);
     setBuyOpen(false);
-    if (error) { if (__DEV__) console.warn("[buyNow] failed:", error.message); Alert.alert(t("auction.purchaseFailed"), t("auction.tryAgain")); return; }
+    if (error) {
+      if (__DEV__) console.warn("[buyNow] failed:", error.message);
+      if (isKycError(error.message)) { alertVerifyToBid(); return; }
+      Alert.alert(t("auction.purchaseFailed"), t("auction.tryAgain")); return;
+    }
     navigation.navigate("AuctionWon", { id });
   };
 
@@ -255,6 +304,16 @@ export function AuctionScreen({
         <View style={styles.bidPanel}>
           <Text style={styles.label}>{t("auction.yourBid")}</Text>
           <Text style={styles.minHint}>{t("auction.minBid", { price: format(minNext) })}</Text>
+
+          {/* Verify-to-bid banner: signed in but not yet verified. */}
+          {!ended && user && kycStatus !== null && kycStatus !== "verified" && (
+            <View style={styles.verifyBanner}>
+              <Ionicons name="shield-outline" size={16} color={theme.colors.warning} />
+              <Text style={styles.verifyBannerText}>
+                {kycStatus === "rejected" ? t("auction.verifyToBidRejected") : t("auction.verifyToBidPending")}
+              </Text>
+            </View>
+          )}
           <View style={styles.stepRow}>
             <Pressable
               onPress={() => setAmountStr((s) => { const b = Number(s) || minNext; return String(Math.max(minNext, b - bidIncrement(b))); })}
@@ -435,6 +494,12 @@ const styles = StyleSheet.create({
   },
   label:    { fontSize: 11, color: theme.colors.textLight, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   minHint:  { fontSize: 11, color: theme.colors.textLight, marginTop: 4 },
+  verifyBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 12, padding: 12, borderRadius: 10,
+    backgroundColor: theme.colors.warningBg, borderWidth: 1, borderColor: "#fedf89",
+  },
+  verifyBannerText: { flex: 1, fontSize: 12, color: theme.colors.warning, fontWeight: "700", lineHeight: 16 },
   stepRow:  { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
   stepBtn:  { width: 48, height: 48, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bgAlt },
   bidInput: { flex: 1, height: 48, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 14, fontSize: 18, fontWeight: "800", color: theme.colors.text, backgroundColor: theme.colors.white, textAlign: "center" },

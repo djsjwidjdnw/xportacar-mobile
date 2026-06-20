@@ -99,4 +99,6 @@ export interface ProfileRow {
   avatar_url: string | null;
   role: "buyer" | "admin" | "inspector" | "superadmin";
   kyc_status: "pending" | "verified" | "rejected";
+  kyc_is_business?: boolean;
+  kyc_rejection_reason?: string | null;
 }
