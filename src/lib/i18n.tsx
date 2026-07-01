@@ -56,6 +56,8 @@ const en: Dict = {
   "nav.auction":     "Auction",
   "nav.auctionWon":  "You Won",
   "nav.signOut":     "Sign out",
+  "gate.inspectorTitle": "Inspector account",
+  "gate.inspectorBody":  "This is an inspector account. Please use the XportACar Inspector app to sign in.",
 
   "live.title":       "Live Auctions",
   "live.subtitle":    "Bid right now on cars ending soon.",
@@ -516,6 +518,8 @@ const de: Dict = {
   "nav.auction":     "Auktion",
   "nav.auctionWon":  "Gewonnen",
   "nav.signOut":     "Abmelden",
+  "gate.inspectorTitle": "Inspektor-Konto",
+  "gate.inspectorBody":  "Dies ist ein Inspektor-Konto. Bitte melden Sie sich in der XportACar Inspector-App an.",
 
   "live.title":      "Live-Auktionen",
   "live.subtitle":   "Biete jetzt auf bald endende Fahrzeuge.",
@@ -974,6 +978,8 @@ const fr: Dict = {
   "nav.auction":      "Enchère",
   "nav.auctionWon":   "Gagnée",
   "nav.signOut":      "Déconnexion",
+  "gate.inspectorTitle": "Compte inspecteur",
+  "gate.inspectorBody":  "Ceci est un compte inspecteur. Veuillez utiliser l’application Inspecteur XportACar pour vous connecter.",
 
   "live.title":      "Enchères en direct",
   "live.subtitle":   "Enchérissez sur des véhicules qui se terminent bientôt.",
@@ -1432,6 +1438,8 @@ const ar: Dict = {
   "nav.auction":      "المزاد",
   "nav.auctionWon":   "ربحت",
   "nav.signOut":      "تسجيل الخروج",
+  "gate.inspectorTitle": "حساب مفتّش",
+  "gate.inspectorBody":  "هذا حساب مفتّش. الرجاء استخدام تطبيق XportACar للمفتّشين لتسجيل الدخول.",
 
   "live.title":      "المزادات المباشرة",
   "live.subtitle":   "زايد الآن على مركبات تنتهي قريبًا.",

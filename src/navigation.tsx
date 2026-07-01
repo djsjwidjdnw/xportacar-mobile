@@ -1,3 +1,4 @@
+import { View, Text, Pressable } from "react-native";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -34,6 +35,33 @@ import { theme } from "./lib/theme";
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
+
+// Roles allowed to use the BUYER app. Inspectors have their own app; admins /
+// superadmins may use either surface. A confirmed 'inspector' is blocked here.
+const BUYER_ROLES = ["buyer", "admin", "superadmin"];
+
+// Shown when a signed-in inspector lands in the buyer app. Gives a clear
+// message and a sign-out so they can switch to the Inspector app.
+function NotAuthorizedScreen() {
+  const { signOut } = useAuth();
+  const { t } = useTranslation();
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: theme.colors.bg }}>
+      <Text style={{ fontSize: 18, fontWeight: "800", color: theme.colors.text, marginBottom: 8, textAlign: "center" }}>
+        {t("gate.inspectorTitle")}
+      </Text>
+      <Text style={{ fontSize: 14, color: theme.colors.textLight, textAlign: "center", marginBottom: 20, lineHeight: 20 }}>
+        {t("gate.inspectorBody")}
+      </Text>
+      <Pressable
+        onPress={() => { void signOut(); }}
+        style={{ backgroundColor: theme.colors.brand, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 }}
+      >
+        <Text style={{ color: theme.colors.white, fontWeight: "600", fontSize: 14 }}>{t("nav.signOut")}</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 const navTheme = {
   ...DefaultTheme,
@@ -176,11 +204,17 @@ function AuthStack() {
 }
 
 export function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { user, role, loading } = useAuth();
   if (loading) return null;
+
+  // Block only a CONFIRMED non-buyer role (inspector). While role is still null
+  // (unfetched or a transient error) we fail-open so a real buyer is never
+  // locked out; RLS still governs what any account can actually read/write.
+  const allowed = role == null || BUYER_ROLES.includes(role);
+
   return (
     <NavigationContainer theme={navTheme}>
-      {user ? <MainTabs /> : <AuthStack />}
+      {user ? (allowed ? <MainTabs /> : <NotAuthorizedScreen />) : <AuthStack />}
     </NavigationContainer>
   );
 }
