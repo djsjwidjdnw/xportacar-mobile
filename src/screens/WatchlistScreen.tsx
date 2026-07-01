@@ -11,6 +11,7 @@ import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
 import { theme, pickThumbnailPhoto } from "../lib/theme";
 import type { VehicleRow, AuctionRow } from "../lib/types";
+import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
 // Owns its own load (does NOT subscribe to the useWatchlist hook's id Set —
 // other screens' instances had stale local state that never propagated here).
@@ -50,7 +51,7 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
     const { data: vehicles, error: vErr } = await supabase
       .from("vehicles")
       .select(`
-        *,
+        ${VEHICLE_PUBLIC_COLUMNS},
         vehicle_photos (url, sort_order, caption, category),
         auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)

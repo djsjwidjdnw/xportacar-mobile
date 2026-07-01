@@ -18,6 +18,7 @@ import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
 import type { AuctionRow, VehicleRow } from "../lib/types";
+import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
 type Filter = "all" | "live";
 
@@ -54,7 +55,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
     const { data, error } = await supabase
       .from("vehicles")
       .select(`
-        *,
+        ${VEHICLE_PUBLIC_COLUMNS},
         vehicle_photos (url, sort_order, caption, category),
         auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)

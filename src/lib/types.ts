@@ -36,6 +36,16 @@ export interface VehicleRow {
   inspection_notes?: string | null;
 }
 
+// Columns selected for BUYER-facing vehicle reads. Deliberately excludes
+// seller_name / seller_phone / seller_email so seller PII never reaches the
+// buyer device over the wire (select('*') would return it under the current
+// RLS). Keep in sync with the non-seller fields of VehicleRow.
+export const VEHICLE_PUBLIC_COLUMNS =
+  "id, vin, make, model, trim, year, mileage_km, fuel_type, transmission, " +
+  "exterior_color, interior_color, body_type, location_city, location_country, " +
+  "status, sold_at, listed_price_eur, reserve_price_eur, buy_now_price_eur, " +
+  "description, features, inspector_id, inspection_date, inspection_notes";
+
 export interface AuctionRow {
   id: string;
   vehicle_id: string;

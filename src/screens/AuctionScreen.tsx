@@ -15,6 +15,7 @@ import { useAuth } from "../lib/auth";
 import { useTranslation } from "../lib/i18n";
 import { useCurrency } from "../lib/currency";
 import type { AuctionRow, BidRow, VehicleRow } from "../lib/types";
+import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
 interface AuctionFull extends AuctionRow {
   vehicle: VehicleRow;
@@ -88,7 +89,7 @@ export function AuctionScreen({
 
   const refresh = useCallback(async () => {
     const [{ data: aRow }, { data: bidRows }] = await Promise.all([
-      supabase.from("auctions").select(`*, vehicle:vehicles!vehicle_id(*)`).eq("id", id).single(),
+      supabase.from("auctions").select(`*, vehicle:vehicles!vehicle_id(${VEHICLE_PUBLIC_COLUMNS})`).eq("id", id).single(),
       supabase.from("bids").select("*").eq("auction_id", id).order("created_at", { ascending: false }),
     ]);
     setAuction((aRow as AuctionFull) ?? null);

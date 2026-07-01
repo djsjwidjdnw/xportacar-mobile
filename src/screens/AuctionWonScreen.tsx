@@ -26,6 +26,7 @@ import {
 } from "../components/AddressAutocomplete";
 import { type ShippingChoice } from "../components/ShippingOptions";
 import type { AuctionRow, VehicleRow, VehicleStatus } from "../lib/types";
+import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
 interface AuctionFull extends AuctionRow {
   vehicle: VehicleRow;
@@ -173,7 +174,7 @@ export function AuctionWonScreen({
     (async () => {
       const { data } = await supabase
         .from("auctions")
-        .select(`*, vehicle:vehicles!vehicle_id(*)`)
+        .select(`*, vehicle:vehicles!vehicle_id(${VEHICLE_PUBLIC_COLUMNS})`)
         .eq("id", id)
         .single();
       const full = (data as AuctionFull) ?? null;
