@@ -17,13 +17,17 @@ import { theme, isAuctionLive, isAuctionEnded, isAuctionScheduled, pickThumbnail
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
+import { useBiddingEnabled } from "../lib/settings";
+import { listingPrice } from "../lib/listing";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
 type Filter = "all" | "live";
 
 // Resolve the displayable price for a vehicle — used by both filter and sort.
-function priceFor(v: VehicleListItem): number {
+// Fixed-price marketplace (bidding off): the listing's one price.
+function priceFor(v: VehicleListItem, bidding: boolean): number {
+  if (!bidding) return listingPrice(v.auction, v) ?? 0;
   if (v.auction?.current_bid_eur) return v.auction.current_bid_eur;
   if (v.auction?.starting_price_eur) return v.auction.starting_price_eur;
   return v.listed_price_eur ?? 0;
@@ -50,17 +54,25 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Filter>("all");
   const [filters, setFilters] = useState<VehicleFilters>(EMPTY_FILTERS);
+  const bidding = useBiddingEnabled();
 
   const fetchVehicles = useCallback(async () => {
-    const { data, error } = await supabase
+    // Fixed-price marketplace: only vehicles whose 7-day listing is live right
+    // now (!inner drops vehicles without one; end_time is checked against the
+    // clock so an expired listing disappears before the server sweep runs).
+    const nowIso = new Date().toISOString();
+    let q = supabase
       .from("vehicles")
       .select(`
         ${VEHICLE_PUBLIC_COLUMNS},
         vehicle_photos (url, sort_order, caption, category),
-        auctions (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
+        ${bidding ? "auctions" : "auctions!inner"} (id, vehicle_id, status, start_time, end_time, starting_price_eur, current_bid_eur, buy_now_price_eur, reserve_price_eur, bid_count, bidder_count, winner_id)
       `)
-      .in("status", ["listed", "in_auction"])
-      .order("updated_at", { ascending: false });
+      .in("status", ["listed", "in_auction"]);
+    if (!bidding) {
+      q = q.eq("auctions.status", "active").lte("auctions.start_time", nowIso).gt("auctions.end_time", nowIso);
+    }
+    const { data, error } = await q.order("updated_at", { ascending: false });
     if (error) { setItems([]); return; }
     type Row = VehicleRow & {
       vehicle_photos?: { url: string; sort_order: number; caption?: string | null; category?: string | null }[];
@@ -71,7 +83,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       if (Array.isArray(a)) return a[0] ?? null;
       return a;
     };
-    const list: VehicleListItem[] = (data as Row[]).map((row) => {
+    const list: VehicleListItem[] = (data as unknown as Row[]).map((row) => {
       // Prefer the front-right 3/4 exterior shot for the card thumbnail.
       const photo = pickThumbnailPhoto(row.vehicle_photos)?.url ?? null;
       const auction = pickAuction(row.auctions);
@@ -79,7 +91,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       return { ...(rest as VehicleRow), photo_url: photo, auction };
     });
     setItems(list);
-  }, []);
+  }, [bidding]);
 
   useEffect(() => { fetchVehicles().finally(() => setLoading(false)); }, [fetchVehicles]);
 
@@ -112,7 +124,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
       if (filters.make && v.make !== filters.make) return false;
       if (filters.yearMin != null && v.year < filters.yearMin) return false;
       if (filters.yearMax != null && v.year > filters.yearMax) return false;
-      if (!priceInBand(priceFor(v), filters.priceBand)) return false;
+      if (!priceInBand(priceFor(v, bidding), filters.priceBand)) return false;
       if (filters.fuel && v.fuel_type !== filters.fuel) return false;
       if (filters.transmission && v.transmission !== filters.transmission) return false;
       return true;
@@ -144,17 +156,17 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
         sorted.sort((a, b) => b.year - a.year || (a.vin ?? "").localeCompare(b.vin ?? ""));
         break;
       case "price_asc":
-        sorted.sort((a, b) => priceFor(a) - priceFor(b));
+        sorted.sort((a, b) => priceFor(a, bidding) - priceFor(b, bidding));
         break;
       case "price_desc":
-        sorted.sort((a, b) => priceFor(b) - priceFor(a));
+        sorted.sort((a, b) => priceFor(b, bidding) - priceFor(a, bidding));
         break;
       case "mileage_asc":
         sorted.sort((a, b) => (a.mileage_km ?? 0) - (b.mileage_km ?? 0));
         break;
     }
     return sorted;
-  }, [tab, items, liveItems, query, filters]);
+  }, [tab, items, liveItems, query, filters, bidding]);
 
   const onToggle = async (vehicleId: string) => {
     if (!user) { Alert.alert(t("watchlist.signInRequired"), t("watchlist.signin")); return; }
@@ -170,7 +182,9 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           within one thumb scroll. */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.topBarText} numberOfLines={1}>
-          {t("marketplace.headerBar", { count: items.length, live: liveItems.length })}
+          {bidding
+            ? t("marketplace.headerBar", { count: items.length, live: liveItems.length })
+            : t("marketplace.headerBarListings", { count: items.length })}
         </Text>
       </View>
       <FlatList
@@ -200,8 +214,8 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
               availableMakes={availableMakes}
             />
 
-            {/* All / Live segmented pills */}
-            <View style={styles.segWrap}>
+            {/* All / Live segmented pills (auctions only) */}
+            {bidding && <View style={styles.segWrap}>
               <SegPill
                 active={tab === "all"}
                 onPress={() => setTab("all")}
@@ -217,7 +231,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
                 count={liveItems.length}
                 liveAccent
               />
-            </View>
+            </View>}
 
             <View style={styles.resultsRow}>
               <Text style={styles.resultsLabel}>
@@ -229,7 +243,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           </View>
         }
         renderItem={({ item }) =>
-          tab === "live" ? (
+          bidding && tab === "live" ? (
             <LiveAuctionCard
               vehicle={item}
               isWatching={watchIds.has(item.id)}
@@ -244,7 +258,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
               onToggleWatch={user ? () => onToggle(item.id) : undefined}
               onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
               onPrimaryAction={() => {
-                if (isAuctionLive(item.auction)) {
+                if (bidding && isAuctionLive(item.auction)) {
                   navigation.navigate("Auction", { id: item.auction!.id });
                 } else {
                   navigation.navigate("VehicleDetail", { id: item.id });
@@ -262,7 +276,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
           />
         }
         ListEmptyComponent={
-          tab === "live" ? (
+          bidding && tab === "live" ? (
             <EmptyState
               icon="flash-outline"
               title={t("marketplace.noLiveTitle")}

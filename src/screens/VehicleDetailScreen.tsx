@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Dimensions, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  Alert, Dimensions, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -21,6 +21,8 @@ import {
 import { useCurrency } from "../lib/currency";
 import { useTranslation } from "../lib/i18n";
 import { useAuth } from "../lib/auth";
+import { useBiddingEnabled } from "../lib/settings";
+import { daysLeftLabel, listingPrice, listingState } from "../lib/listing";
 import type { AuctionRow, VehicleRow, VehicleDamageRow, VehiclePhotoRow, PaintThicknessReadingRow } from "../lib/types";
 import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
@@ -158,15 +160,32 @@ export function VehicleDetailScreen({
     const lead = pickThumbnailPhoto(sorted);
     return lead ? [lead, ...sorted.filter((p) => p !== lead)] : sorted;
   }, [vehicle]);
+  // Fixed-price marketplace unless app_settings.bidding_enabled is on: one
+  // price, the days left on the 7-day listing, and a KYC-gated Buy that runs
+  // the buy_now() RPC right here (no bidding screen).
+  const bidding = useBiddingEnabled();
+  const lstate = listingState(auction);
+  const [buying, setBuying] = useState(false);
+  const [kycStatus, setKycStatus] = useState<"pending" | "verified" | "rejected" | null>(null);
+  useEffect(() => {
+    if (!user) { setKycStatus(null); return; }
+    let on = true;
+    supabase.from("profiles").select("kyc_status").eq("id", user.id).maybeSingle()
+      .then(({ data }) => { if (on) setKycStatus((data?.kyc_status as "pending" | "verified" | "rejected" | undefined) ?? null); });
+    return () => { on = false; };
+  }, [user]);
+
   // Compute live/scheduled/ended from end_time + status so the sticky CTA
   // and badges stay accurate when the DB row hasn't flipped to "ended" yet.
-  const live      = isAuctionLive(auction);
-  const scheduled = isAuctionScheduled(auction);
-  const ended     = isAuctionEnded(auction);
+  const live      = bidding ? isAuctionLive(auction) : lstate === "live";
+  const scheduled = bidding ? isAuctionScheduled(auction) : false;
+  const ended     = bidding ? isAuctionEnded(auction) : lstate === "expired" || lstate === "sold";
 
   // Headline price for the sticky bar and "total estimate" — uses raw EUR
   // since formatEur is replaced with the currency-aware format() helper.
-  const priceEur = live
+  const priceEur = !bidding
+    ? (vehicle ? listingPrice(auction, vehicle) ?? 0 : 0)
+    : live
     ? (auction?.current_bid_eur ?? auction?.starting_price_eur ?? 0)
     : scheduled
       ? (auction?.starting_price_eur ?? 0)
@@ -205,6 +224,42 @@ export function VehicleDetailScreen({
   const goAuction = () => auction && navigation.navigate("Auction", { id: auction.id });
   const goBuyNow  = () => auction && navigation.navigate("Auction", { id: auction.id, buyNow: true });
   const goInvoice = () => auction && navigation.navigate("AuctionWon", { id: auction.id });
+  const buyListing = () => {
+    if (!auction || buying) return;
+    if (!user) { Alert.alert(t("listing.signInToBuy")); return; }
+    if (kycStatus !== "verified") {
+      Alert.alert(t("listing.verifyTitle"), kycStatus === "rejected" ? t("listing.verifyRejected") : t("listing.verifyPending"));
+      return;
+    }
+    Alert.alert(
+      t("listing.confirmTitle"),
+      t("listing.confirmBody", { vehicle: `${vehicle.year} ${vehicle.make} ${vehicle.model}`, price: format(priceEur) }),
+      [
+        { text: t("auction.cancel"), style: "cancel" },
+        {
+          text: t("listing.confirmCta"),
+          onPress: async () => {
+            setBuying(true);
+            // buy_now(): KYC gate, row lock, records the purchase, closes the
+            // listing as sold (invoice trigger) and marks the vehicle sold.
+            const { error } = await supabase.rpc("buy_now", { p_auction_id: auction.id });
+            setBuying(false);
+            if (error) {
+              const m = error.message ?? "";
+              Alert.alert(
+                t("listing.purchaseFailed"),
+                /KYC/i.test(m) ? t("listing.verifyPending")
+                : /AUCTION_|BUY_NOW/.test(m) ? t("listing.errUnavailable")
+                : t("auction.tryAgain"),
+              );
+              return;
+            }
+            navigation.navigate("AuctionWon", { id: auction.id });
+          },
+        },
+      ],
+    );
+  };
   const stickyVisible = !!auction;
 
   return (
@@ -237,7 +292,9 @@ export function VehicleDetailScreen({
           {live && auction && (
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveText}>{t("vehicle.liveBadge", { time: formatRemaining(auction.end_time) })}</Text>
+              <Text style={styles.liveText}>
+                {bidding ? t("vehicle.liveBadge", { time: formatRemaining(auction.end_time) }) : daysLeftLabel(t, auction.end_time)}
+              </Text>
             </View>
           )}
           {scheduled && auction && (
@@ -404,7 +461,8 @@ export function VehicleDetailScreen({
         <View style={styles.stickyBar}>
           <View style={styles.stickyTop}>
             <Text style={styles.stickyLabel}>
-              {live ? t("auction.currentBid")
+              {!bidding ? t("listing.price")
+                : live ? t("auction.currentBid")
                 : scheduled ? t("vehicle.startingPrice")
                 : ended ? t("vehicle.finalPrice")
                 : t("vehicle.listedPrice")}
@@ -427,6 +485,26 @@ export function VehicleDetailScreen({
                 >
                   <Ionicons name="receipt-outline" size={18} color={theme.colors.white} />
                   <Text style={styles.bidNowText}>{t("vehicle.viewInvoice")}</Text>
+                </LinearGradient>
+              </Pressable>
+            ) : !bidding ? (
+              <Pressable
+                onPress={live ? buyListing : undefined}
+                disabled={!live || buying}
+                style={({ pressed }) => [styles.bidNowShadow, pressed && { opacity: 0.92 }]}
+              >
+                <LinearGradient
+                  colors={live ? [theme.colors.brand, theme.colors.brandDark] : [theme.colors.textMuted, theme.colors.textMuted]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={styles.bidNowBtn}
+                >
+                  <Ionicons name={live ? "cart-outline" : "lock-closed-outline"} size={18} color={theme.colors.white} />
+                  <Text style={styles.bidNowText}>
+                    {live ? (buying ? "…" : t("listing.buyNow"))
+                      : lstate === "sold" ? t("listing.sold")
+                      : lstate === "expired" ? t("listing.expired")
+                      : t("listing.notListed")}
+                  </Text>
                 </LinearGradient>
               </Pressable>
             ) : (

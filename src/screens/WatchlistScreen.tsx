@@ -11,6 +11,7 @@ import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
 import { theme, pickThumbnailPhoto } from "../lib/theme";
 import type { VehicleRow, AuctionRow } from "../lib/types";
+import { useBiddingEnabled } from "../lib/settings";
 import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 
 // Owns its own load (does NOT subscribe to the useWatchlist hook's id Set —
@@ -20,6 +21,7 @@ import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
 export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const bidding = useBiddingEnabled();
   const { toggle: toggleWatch, reload: reloadIds } = useWatchlist(user?.id ?? null);
   const [items, setItems] = useState<VehicleListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,7 +152,7 @@ export function WatchlistScreen({ navigation }: { navigation: { navigate: (s: st
             onToggleWatch={() => onToggle(item.id)}
             onPress={() => navigation.navigate("VehicleDetail", { id: item.id })}
             onPrimaryAction={() => {
-              if (item.auction?.status === "active") {
+              if (bidding && item.auction?.status === "active") {
                 navigation.navigate("Auction", { id: item.auction.id });
               } else {
                 navigation.navigate("VehicleDetail", { id: item.id });

@@ -14,6 +14,7 @@ import { WatchlistScreen as WatchlistScreenImpl } from "./screens/WatchlistScree
 import { ProfileScreen as ProfileScreenImpl } from "./screens/ProfileScreen";
 import { MyBidsScreen as MyBidsScreenImpl } from "./screens/MyBidsScreen";
 import { AuctionWonScreen as AuctionWonScreenImpl } from "./screens/AuctionWonScreen";
+import { PurchasesScreen as PurchasesScreenImpl } from "./screens/PurchasesScreen";
 
 // React-Navigation's Screen prop types differ from a hand-written screen
 // signature.  Cast through `unknown` here once so each screen stays
@@ -28,9 +29,11 @@ const WatchlistScreen      = WatchlistScreenImpl      as unknown as AnyScreen;
 const ProfileScreen        = ProfileScreenImpl        as unknown as AnyScreen;
 const MyBidsScreen         = MyBidsScreenImpl         as unknown as AnyScreen;
 const AuctionWonScreen     = AuctionWonScreenImpl     as unknown as AnyScreen;
+const PurchasesScreen      = PurchasesScreenImpl      as unknown as AnyScreen;
 
 import { useAuth } from "./lib/auth";
 import { useTranslation } from "./lib/i18n";
+import { useBiddingEnabled } from "./lib/settings";
 import { theme } from "./lib/theme";
 
 const Stack = createNativeStackNavigator();
@@ -114,9 +117,10 @@ function MarketplaceStack() {
 
 function MyBidsStack() {
   const titles = useStackTitles();
+  const bidding = useBiddingEnabled();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="MyBidsHome"    component={MyBidsScreen} />
+      <Stack.Screen name="MyBidsHome"    component={bidding ? MyBidsScreen : PurchasesScreen} />
       <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: titles.vehicle }} />
       <Stack.Screen name="Auction"       component={AuctionScreen}       options={{ headerShown: true, title: titles.auction }} />
       <Stack.Screen name="AuctionWon"    component={AuctionWonScreen}    options={{ headerShown: true, title: titles.auctionWon }} />
@@ -151,6 +155,7 @@ function ProfileStack() {
 
 function MainTabs() {
   const { t } = useTranslation();
+  const bidding = useBiddingEnabled();
   // Lift the tab bar above the Android system nav / iOS home indicator.
   // Without this the Watchlist + Profile tabs sit behind the OS buttons.
   const insets = useSafeAreaInsets();
@@ -178,7 +183,9 @@ function MainTabs() {
       <Tabs.Screen
         name="MyBids"
         component={MyBidsStack}
-        options={{ tabBarLabel: t("nav.myBids"), tabBarIcon: makeTabIcon("hammer-outline") }}
+        options={bidding
+          ? { tabBarLabel: t("nav.myBids"), tabBarIcon: makeTabIcon("hammer-outline") }
+          : { tabBarLabel: t("nav.purchases"), tabBarIcon: makeTabIcon("receipt-outline") }}
       />
       <Tabs.Screen
         name="Watchlist"

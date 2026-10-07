@@ -13,6 +13,7 @@ import { supabase } from "../lib/supabase";
 import { theme, formatRemaining, formatEur } from "../lib/theme";
 import { useAuth } from "../lib/auth";
 import { useTranslation } from "../lib/i18n";
+import { useBiddingFlag } from "../lib/settings";
 import { useCurrency } from "../lib/currency";
 import type { AuctionRow, BidRow, VehicleRow } from "../lib/types";
 import { VEHICLE_PUBLIC_COLUMNS } from "../lib/types";
@@ -129,6 +130,16 @@ export function AuctionScreen({
     })();
     return () => { cancelled = true; };
   }, [user]);
+
+  // Fixed-price marketplace: the vehicle screen is the listing (price, days
+  // left, Buy). Old links and notifications that land here are sent there,
+  // but only once the flag has actually been read.
+  const bidding = useBiddingFlag();
+  useEffect(() => {
+    if (bidding.ready && !bidding.enabled && auction?.vehicle_id) {
+      navigation.navigate("VehicleDetail", { id: auction.vehicle_id });
+    }
+  }, [bidding.ready, bidding.enabled, auction?.vehicle_id, navigation]);
 
   // Show the verify-to-bid message. Wording differs for pending vs rejected.
   const alertVerifyToBid = useCallback(() => {

@@ -8,6 +8,8 @@ import {
 } from "../lib/theme";
 import { estimateValuation } from "../lib/valuation";
 import { useTranslation } from "../lib/i18n";
+import { useBiddingEnabled } from "../lib/settings";
+import { daysLeftLabel, listingPrice, listingState } from "../lib/listing";
 import type { AuctionRow, VehicleRow } from "../lib/types";
 
 export interface VehicleListItem extends VehicleRow {
@@ -40,17 +42,30 @@ export function VehicleCard({
   onToggleWatch?: () => void;
 }) {
   const { t } = useTranslation();
+  // Fixed-price marketplace unless app_settings.bidding_enabled is on: one
+  // price, the days left on the 7-day listing, and a Buy CTA.
+  const bidding = useBiddingEnabled();
+  const lstate = listingState(vehicle.auction);
   // Compute live/scheduled/ended from end_time + status, not status alone:
   // an auction with status="active" but end_time in the past is over.
-  const live = isAuctionLive(vehicle.auction);
-  const scheduled = isAuctionScheduled(vehicle.auction);
-  const ended = isAuctionEnded(vehicle.auction);
-  const price = live
-    ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
-    : ended
+  const live = bidding ? isAuctionLive(vehicle.auction) : lstate === "live";
+  const scheduled = bidding ? isAuctionScheduled(vehicle.auction) : false;
+  const ended = bidding ? isAuctionEnded(vehicle.auction) : lstate === "expired" || lstate === "sold";
+  const price = !bidding
+    ? listingPrice(vehicle.auction, vehicle)
+    : live
       ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
-      : vehicle.listed_price_eur;
-  const cta = ctaFor(vehicle.auction, t);
+      : ended
+        ? (vehicle.auction?.current_bid_eur ?? vehicle.auction?.starting_price_eur)
+        : vehicle.listed_price_eur;
+  const cta = bidding
+    ? ctaFor(vehicle.auction, t)
+    : lstate === "live"
+      ? { label: t("listing.buyNow"), icon: "cart-outline" as const, variant: "primary" as const }
+      : lstate === "none"
+        ? { label: t("card.viewDetails"), icon: "arrow-forward" as const, variant: "muted" as const }
+        : { label: lstate === "sold" ? t("listing.sold") : t("listing.expired"), icon: "lock-closed-outline" as const, variant: "muted" as const };
+  const endedLabel = bidding ? t("card.ended") : lstate === "sold" ? t("listing.sold") : t("listing.expired");
   const marketAvg = estimateValuation({
     make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km,
   }).avgEur;
@@ -58,7 +73,7 @@ export function VehicleCard({
   // Pulsing green dot on live cards.
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (!live) return;
+    if (!live || !bidding) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1.6, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: true }),
@@ -67,7 +82,7 @@ export function VehicleCard({
     );
     loop.start();
     return () => loop.stop();
-  }, [live, pulse]);
+  }, [live, bidding, pulse]);
 
   // Heart tap → quick scale bounce (1.0 → 1.3 → 1.0 over 200ms) for tactile feedback.
   const heartScale = useRef(new Animated.Value(1)).current;
@@ -84,9 +99,9 @@ export function VehicleCard({
   // Status chip — surfaces the vehicle/auction state on every card so the
   // marketplace mixes listed / scheduled / live / ended without confusion.
   const statusChip = ended
-    ? { l: t("card.ended"),     bg: theme.colors.errorBg,    fg: theme.colors.error }
+    ? { l: endedLabel,          bg: theme.colors.errorBg,    fg: theme.colors.error }
     : live
-    ? { l: t("card.liveNow"),  bg: theme.colors.successBg,  fg: theme.colors.success }
+    ? { l: bidding ? t("card.liveNow") : t("listing.forSale"), bg: theme.colors.successBg, fg: theme.colors.success }
     : scheduled
     ? { l: t("card.scheduled"), bg: theme.colors.brandLight, fg: theme.colors.brand }
     : { l: t("card.listed"),    bg: theme.colors.bgAlt,      fg: theme.colors.textMuted };
@@ -107,10 +122,10 @@ export function VehicleCard({
         {ended && (
           <View style={styles.endedBadge}>
             <Ionicons name="lock-closed" size={11} color={theme.colors.white} />
-            <Text style={styles.liveText}>{t("card.ended")}</Text>
+            <Text style={styles.liveText}>{endedLabel}</Text>
           </View>
         )}
-        {!ended && live && (
+        {!ended && live && bidding && (
           <View style={styles.liveBadge}>
             <Animated.View style={[styles.liveDot, { transform: [{ scale: pulse }] }]} />
             <Text style={styles.liveText}>{t("card.live")}</Text>
@@ -124,8 +139,10 @@ export function VehicleCard({
         )}
         {!ended && live && vehicle.auction && (
           <View style={styles.timerBadge}>
-            <Ionicons name="time-outline" size={12} color={theme.colors.white} />
-            <Text style={styles.timerText}>{formatRemaining(vehicle.auction.end_time)}</Text>
+            <Ionicons name={bidding ? "time-outline" : "calendar-outline"} size={12} color={theme.colors.white} />
+            <Text style={styles.timerText}>
+              {bidding ? formatRemaining(vehicle.auction.end_time) : daysLeftLabel(t, vehicle.auction.end_time)}
+            </Text>
           </View>
         )}
         {!ended && scheduled && vehicle.auction && (
@@ -179,14 +196,14 @@ export function VehicleCard({
         <View style={styles.priceRow}>
           <View>
             <Text style={styles.priceLabel}>
-              {ended ? t("card.finalBid") : live ? t("auction.currentBid") : scheduled ? t("vehicle.startingPrice") : t("vehicle.listedPrice")}
+              {!bidding ? t("listing.price") : ended ? t("card.finalBid") : live ? t("auction.currentBid") : scheduled ? t("vehicle.startingPrice") : t("vehicle.listedPrice")}
             </Text>
             <Text style={styles.price}>
               {formatEur(scheduled ? vehicle.auction?.starting_price_eur : price)}
             </Text>
             <Text style={styles.marketLine}>{t("card.marketPrice", { price: formatEur(marketAvg) })}</Text>
           </View>
-          {vehicle.auction && live && !ended && (
+          {bidding && vehicle.auction && live && !ended && (
             <Text style={styles.bidsSub}>
               {t("auction.bidsBidders", { bids: vehicle.auction.bid_count, bidders: vehicle.auction.bidder_count })}
             </Text>

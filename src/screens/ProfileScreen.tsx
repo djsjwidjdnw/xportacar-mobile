@@ -12,6 +12,7 @@ import { Spinner } from "../components/Spinner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useTranslation, SUPPORTED, type Locale } from "../lib/i18n";
+import { useBiddingEnabled } from "../lib/settings";
 import { theme, formatEur, formatMonthYear, isAuctionEnded, isAuctionLive } from "../lib/theme";
 import {
   pickKycImage, pickKycDocument, uploadKycDocs,
@@ -54,6 +55,7 @@ const LANG_LABELS: Record<Locale, { label: string; flag: string }> = {
 export function ProfileScreen({ navigation }: { navigation: { navigate: (s: string, p?: object) => void } }) {
   const { user, session, signOut } = useAuth();
   const { t, locale, setLocale } = useTranslation();
+  const bidding = useBiddingEnabled();
   const [profile, setProfile] = useState<ExtendedProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -409,6 +411,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         );
       })()}
 
+      {bidding && (<>
       {/* Recent bid activity — horizontal scroll cards with See All link */}
       <View style={styles.bidsHeaderRow}>
         <View style={styles.bidsHeaderLeft}>
@@ -493,6 +496,7 @@ export function ProfileScreen({ navigation }: { navigation: { navigate: (s: stri
         </ScrollView>
       )}
 
+      </>)}
       {/* Won auctions — tapping any row jumps straight to the invoice */}
       {won.length > 0 && (
         <>
