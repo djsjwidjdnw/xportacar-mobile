@@ -12,7 +12,8 @@ import {
   ShippingOptions, type ShippingChoice, describeShipping, getShippingPriceEur,
 } from "../components/ShippingOptions";
 import { getShippingRates, FALLBACK_RATES, type ShippingRate } from "../lib/shipping";
-import { estimateValuation, getMarketValuation, pricePosition, type Valuation } from "../lib/valuation";
+import { MarketPricesCard } from "../components/MarketPricesCard";
+import { useMarketPrices } from "../lib/marketPrices";
 import { supabase } from "../lib/supabase";
 import {
   theme, formatKm, formatRemaining, formatScheduledStartLong,
@@ -196,23 +197,8 @@ export function VehicleDetailScreen({
   const shippingEur = getShippingPriceEur(shipping, shipRates);
   const totalEur = priceEur + shippingEur;
 
-  // Market valuation (currency-aware via format()). Seed with the instant
-  // reference-table estimate, then upgrade to live market data when it arrives.
-  const [valuation, setValuation] = useState<Valuation | null>(null);
-  useEffect(() => {
-    if (!vehicle) { setValuation(null); return; }
-    const input = { make: vehicle.make, model: vehicle.model, year: vehicle.year, mileageKm: vehicle.mileage_km };
-    setValuation(estimateValuation(input));
-    let on = true;
-    getMarketValuation(input).then((v) => { if (on) setValuation(v); });
-    return () => { on = false; };
-  }, [vehicle]);
-  const mvPos = valuation ? pricePosition(priceEur, valuation) : "unknown";
-  // Cap the marker at the bar edges: above max → right edge, below min → left edge.
-  const mvPct = valuation ? Math.min(100, Math.max(0, ((priceEur - valuation.minEur) / Math.max(1, valuation.maxEur - valuation.minEur)) * 100)) : 0;
-  const mvColor = mvPos === "fair" ? theme.colors.success : mvPos === "below" ? theme.colors.warning : mvPos === "above" ? theme.colors.error : theme.colors.textMuted;
-  const mvLabel = mvPos === "fair" ? t("vehicle.mvFair") : mvPos === "below" ? t("vehicle.mvBelow") : mvPos === "above" ? t("vehicle.mvAbove") : "";
-  const mvLabelColor = mvPos === "below" ? "#b54708" : mvPos === "above" ? theme.colors.error : theme.colors.success;
+  // UAE vs EU market prices: the stored lookup only (never triggered from here).
+  const market = useMarketPrices(vehicle?.id);
 
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
   const userWonThis = !!(ended && user && auction && auction.winner_id === user.id);
@@ -339,40 +325,10 @@ export function VehicleDetailScreen({
             </View>
           </Section>
 
-          {/* Market value */}
-          {valuation && (
-            <Section title={t("vehicle.marketValue")} icon="trending-up-outline">
-              <View style={styles.mvCard}>
-                <View style={styles.mvHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.mvAvg}>{format(valuation.avgEur)}</Text>
-                    <Text style={styles.mvAvgLabel}>{t("vehicle.avgMarketValue")}</Text>
-                  </View>
-                  {mvLabel ? (
-                    <View style={[styles.mvPill, { backgroundColor: `${mvLabelColor}1A`, borderColor: `${mvLabelColor}40` }]}>
-                      <Text style={[styles.mvPillText, { color: mvLabelColor }]}>{mvLabel}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                {/* Gradient track: green (min) → yellow (avg) → red (max) */}
-                <View style={styles.mvTrack}>
-                  <LinearGradient
-                    colors={[theme.colors.success, theme.colors.warning, theme.colors.error]}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                    style={styles.mvTrackFill}
-                  />
-                  <View style={[styles.mvMarker, { left: `${mvPct}%`, backgroundColor: mvColor }]} />
-                </View>
-                <View style={styles.mvRow}>
-                  <Text style={styles.mvMinMax}>{t("vehicle.mvMin", { price: format(valuation.minEur) })}</Text>
-                  <Text style={styles.mvMinMax}>{t("vehicle.mvMax", { price: format(valuation.maxEur) })}</Text>
-                </View>
-                <Text style={styles.mvNote}>
-                  {valuation.source === "market_data"
-                    ? t("vehicle.mvBasedOn", { count: valuation.dataPoints })
-                    : t("vehicle.mvEstimated")}
-                </Text>
-              </View>
+          {/* Market prices (UAE vs EU), only when at least one side has data */}
+          {market.view && (
+            <Section title={t("marketPrices.title")} icon="stats-chart-outline">
+              <MarketPricesCard view={market.view} marketSpec={market.marketSpec} />
             </Section>
           )}
 
@@ -851,19 +807,6 @@ const styles = StyleSheet.create({
   // Shipping
   shipSub: { fontSize: 12, color: theme.colors.textLight, marginTop: -6, marginBottom: 12 },
 
-  // Market value bar
-  mvCard: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.white, borderWidth: 1, borderColor: theme.colors.border },
-  mvHeader: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  mvAvg: { fontSize: 22, fontWeight: "800", color: theme.colors.text },
-  mvAvgLabel: { fontSize: 11, color: theme.colors.textLight, fontWeight: "600", marginTop: 1 },
-  mvPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: theme.radius.full, borderWidth: 1 },
-  mvPillText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
-  mvTrack: { height: 10, borderRadius: 5, backgroundColor: theme.colors.bgAlt, marginTop: 16, marginBottom: 16, position: "relative" },
-  mvTrackFill: { ...StyleSheet.absoluteFillObject, borderRadius: 5 },
-  mvMarker: { position: "absolute", top: -3, width: 16, height: 16, borderRadius: 8, marginLeft: -8, borderWidth: 2, borderColor: theme.colors.white },
-  mvRow: { flexDirection: "row", justifyContent: "space-between" },
-  mvMinMax: { fontSize: 11, fontWeight: "700", color: theme.colors.textMuted },
-  mvNote: { fontSize: 11, color: theme.colors.textLight, marginTop: 10 },
   totalCard: {
     flexDirection: "row", alignItems: "center", gap: 12,
     marginTop: 14, padding: 14, borderRadius: 14,
