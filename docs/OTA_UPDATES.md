@@ -73,8 +73,8 @@ Devices fetch the rolled-back JS on the next launch.
   builds (the next `eas build` after this commit) include the updater and can
   receive OTA.
 - Updates only ship to builds whose **runtime version** matches. As of
-  2026-10-09 store binaries run **1.0.0**, **1.0.1** (released 2026-10-07) and
-  **1.0.2** (submitted 2026-10-09). Publish each fix once per runtime that
+  2026-10-15 store binaries run **1.0.0**, **1.0.1** (released 2026-10-07) and
+  **1.0.2** (approved and live, checked 2026-10-15). Publish each fix once per runtime that
   still has users, temporarily setting `expo.version` to that runtime (never
   commit the temporary value). Builds on a runtime you skip stay on the last
   update published to it.
