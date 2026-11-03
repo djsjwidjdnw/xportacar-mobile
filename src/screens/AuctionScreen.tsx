@@ -10,6 +10,7 @@ import { Button } from "../components/Button";
 import { Spinner } from "../components/Spinner";
 import { CurrencyPills } from "../components/CurrencyPills";
 import { supabase } from "../lib/supabase";
+import { isMissingRow, useLeaveMissingListing } from "../lib/listingNotice";
 import { theme, formatRemaining, formatEur } from "../lib/theme";
 import { useAuth } from "../lib/auth";
 import { useTranslation } from "../lib/i18n";
@@ -47,6 +48,9 @@ export function AuctionScreen({
   const [auction, setAuction] = useState<AuctionFull | null>(null);
   const [bids, setBids] = useState<BidRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Deleted car/listing: go back to the marketplace with "no longer available".
+  const [missing, setMissing] = useState(false);
+  useLeaveMissingListing(missing);
   // Bid amounts are held as STRINGS so the field can be cleared while typing
   // (a numeric value snaps an empty field back to "0" — the "can't delete the
   // zero" bug). Coerce to a number on use/submit.
@@ -89,11 +93,12 @@ export function AuctionScreen({
   }, []);
 
   const refresh = useCallback(async () => {
-    const [{ data: aRow }, { data: bidRows }] = await Promise.all([
+    const [{ data: aRow, error: aErr }, { data: bidRows }] = await Promise.all([
       supabase.from("auctions").select(`*, vehicle:vehicles!vehicle_id(${VEHICLE_PUBLIC_COLUMNS})`).eq("id", id).single(),
       supabase.from("bids").select("*").eq("auction_id", id).order("created_at", { ascending: false }),
     ]);
     setAuction((aRow as AuctionFull) ?? null);
+    if (!aRow && isMissingRow(aErr)) setMissing(true);
     setBids((bidRows as BidRow[]) ?? []);
   }, [id]);
 
@@ -263,7 +268,7 @@ export function AuctionScreen({
   };
 
   if (loading) return <Spinner label={t("auction.loading")} />;
-  if (!auction) return <View style={styles.center}><Text>{t("auction.notFound")}</Text></View>;
+  if (!auction) return missing ? null : <View style={styles.center}><Text>{t("auction.notFound")}</Text></View>;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>

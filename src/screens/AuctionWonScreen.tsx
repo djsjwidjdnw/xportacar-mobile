@@ -12,6 +12,7 @@ import { Spinner } from "../components/Spinner";
 import { CurrencyPills } from "../components/CurrencyPills";
 import { CustomsDisclaimer } from "../components/CustomsDisclaimer";
 import { supabase } from "../lib/supabase";
+import { isMissingRow, useLeaveMissingListing } from "../lib/listingNotice";
 import { theme } from "../lib/theme";
 import { useCurrency } from "../lib/currency";
 import { useAuth } from "../lib/auth";
@@ -143,6 +144,9 @@ export function AuctionWonScreen({
   const [invoice, setInvoice] = useState<InvoiceRow | null>(null);
   const [statusEvents, setStatusEvents] = useState<StatusEventRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Deleted car/listing: go back to the marketplace with "no longer available".
+  const [missing, setMissing] = useState(false);
+  useLeaveMissingListing(missing);
   const [now, setNow] = useState(new Date());
 
   // Shipping + delivery selection (drives the invoice total below).
@@ -172,13 +176,14 @@ export function AuctionWonScreen({
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("auctions")
         .select(`*, vehicle:vehicles!vehicle_id(${VEHICLE_PUBLIC_COLUMNS})`)
         .eq("id", id)
         .single();
       const full = (data as AuctionFull) ?? null;
       setAuction(full);
+      if ((!full && isMissingRow(error)) || (full && !full.vehicle)) { setMissing(true); return; }
       // Order-lifecycle events for this vehicle (sold → … → delivered).
       const vehicleId = full?.vehicle?.id;
       if (vehicleId) {
@@ -322,7 +327,7 @@ export function AuctionWonScreen({
     catch { /* user dismissed the share sheet */ }
   };
 
-  if (loading) return <Spinner label={t("won.loadingInvoice")} />;
+  if (loading || missing) return <Spinner label={t("won.loadingInvoice")} />;
   if (!auction || !auction.vehicle) {
     return <View style={styles.center}><Text>{t("auction.notFound")}</Text></View>;
   }

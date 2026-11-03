@@ -17,6 +17,7 @@ import { theme, isAuctionLive, isAuctionEnded, isAuctionScheduled, pickThumbnail
 import { useAuth } from "../lib/auth";
 import { useWatchlist } from "../lib/watchlist";
 import { useTranslation } from "../lib/i18n";
+import { ListingUnavailableBanner } from "../lib/listingNotice";
 import { useBiddingEnabled } from "../lib/settings";
 import { listingPrice } from "../lib/listing";
 import type { AuctionRow, VehicleRow } from "../lib/types";
@@ -193,6 +194,7 @@ export function MarketplaceScreen({ navigation }: { navigation: { navigate: (s: 
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32 }}
         ListHeaderComponent={
           <View>
+            <ListingUnavailableBanner />
             {/* Search */}
             <View style={styles.searchWrap}>
               <Ionicons name="search-outline" size={18} color={theme.colors.textLight} style={{ marginRight: 8 }} />

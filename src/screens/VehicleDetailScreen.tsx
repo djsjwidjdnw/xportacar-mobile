@@ -14,6 +14,7 @@ import {
 import { getShippingRates, FALLBACK_RATES, type ShippingRate } from "../lib/shipping";
 import { MarketPricesCard } from "../components/MarketPricesCard";
 import { useMarketPrices } from "../lib/marketPrices";
+import { isMissingRow, useLeaveMissingListing } from "../lib/listingNotice";
 import { supabase } from "../lib/supabase";
 import {
   theme, formatKm, formatRemaining, formatScheduledStartLong,
@@ -94,6 +95,9 @@ export function VehicleDetailScreen({
   const [vehicle, setVehicle] = useState<VehicleFull | null>(null);
   const [auction, setAuction] = useState<AuctionRow | null>(null);
   const [loading, setLoading] = useState(true);
+  // Deleted car: go back to the marketplace with "no longer available".
+  const [missing, setMissing] = useState(false);
+  useLeaveMissingListing(missing);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [shipping, setShipping] = useState<ShippingChoice>({ method: { kind: "port", port: "Hamburg" }, tuv: false });
   const [reportOpen, setReportOpen] = useState(false);
@@ -118,6 +122,7 @@ export function VehicleDetailScreen({
 
       const v = (data as VehicleFull) ?? null;
       setVehicle(v);
+      if (!v && isMissingRow(error)) { setMissing(true); return; }
 
       // Per-panel paint-thickness readings live in their own table (not embedded
       // above) — fetch separately, mirroring the web buyer report, then order by
@@ -203,7 +208,7 @@ export function VehicleDetailScreen({
   const buyNowAvailable = !!(live && auction?.buy_now_price_eur != null);
   const userWonThis = !!(ended && user && auction && auction.winner_id === user.id);
 
-  if (loading) return <Spinner label={t("vehicle.loading")} />;
+  if (loading || missing) return <Spinner label={t("vehicle.loading")} />;
   if (!vehicle) return <View style={styles.center}><Text>{t("vehicle.notFound")}</Text></View>;
 
   const width = Dimensions.get("window").width;
